@@ -15,6 +15,7 @@
 #include "esp_zb_window_covering.h"
 #include "stepper_motor_driver.h" // custom stepper motor driver
 
+#include "light_driver.h"
 #include "stdio.h"
 #include "string.h"
 #include "esp_check.h"
@@ -33,14 +34,14 @@
 
 #define ARRAY_LENTH(arr) (sizeof(arr) / sizeof(arr[0]))
 
-#define CONFIG_GPIO_BUTTON_SUPPORT_POWER_SAVE 1
-
 #if defined ZB_ED_ROLE
 #error Define ZB_COORDINATOR_ROLE in idf.py menuconfig to compile window covering source code.
 #endif
 
 static const char *TAG = "ESP_ZB_WINDOW_COVERING";
 static stepper_driver stepper_motor_driver;
+
+static bool active_config = false;
 
 static const char *TAG_BUTTON = "BUTTON_POWER_SAVE";
 
@@ -64,13 +65,101 @@ char manufname[] = {9, 'E', 's', 'p', 'r', 'e', 's', 's', 'i', 'f'};
 
 /********************* Define functions **************************/
 
-static void button_event_cb(void *arg, void *data)
+static void button_double_click_event_cb(void *arg, void *data)
 {
     ESP_LOGI(TAG_BUTTON, "Button event %s", button_event_table[(button_event_t)data]);
-    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-    if (cause != ESP_SLEEP_WAKEUP_UNDEFINED) {
-        ESP_LOGI(TAG_BUTTON, "Wake up from light sleep, reason %d", cause);
+    
+    active_config = !active_config;
+    light_driver_set_power(active_config);
+    
+    esp_zb_lock_acquire(portMAX_DELAY);
+    if (active_config) {
+        esp_zb_zcl_attr_t * attribute_physical_closed = esp_zb_zcl_get_attribute(HA_WINDOW_COVERING_ENDPOINT, 
+                                                                                ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                                                                ESP_ZB_ZCL_CLUSTER_SERVER_ROLE, 
+                                                                                ESP_ZB_ZCL_ATTR_WINDOW_COVERING_PHYSICAL_CLOSED_LIMIT_LIFT_ID);
+
+        esp_zb_zcl_attr_t * attribute_installed_open = esp_zb_zcl_get_attribute(HA_WINDOW_COVERING_ENDPOINT, 
+                                                                                ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                                                                ESP_ZB_ZCL_CLUSTER_SERVER_ROLE, 
+                                                                                ESP_ZB_ZCL_ATTR_WINDOW_COVERING_INSTALLED_OPEN_LIMIT_LIFT_ID);
+
+        if (attribute_physical_closed != NULL && attribute_installed_open != NULL) {
+            
+            uint16_t physical_closed = *(uint16_t *)(attribute_physical_closed->data_p);
+            uint16_t installed_open = *(uint16_t *)(attribute_installed_open->data_p);
+            
+            ESP_LOGI(TAG, "Update 'ESP_ZB_ZCL_ATTR_WINDOW_COVERING_INSTALLED_CLOSED_LIMIT_LIFT_ID' attribute to %d", physical_closed);
+            ESP_LOGI(TAG, "Update 'ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_ID' attribute to %d", installed_open);
+
+            stepper_motor_driver.step_min = installed_open;
+            stepper_motor_driver.step_max = physical_closed;
+            stepper_motor_driver.step_n = stepper_motor_driver.step_min + 1;
+
+            uint16_t lift_value = stepper_motor_driver.step_n;
+            uint8_t lift_percentage = 0;
+
+            esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
+                                         ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                         ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+                                         ESP_ZB_ZCL_ATTR_WINDOW_COVERING_INSTALLED_CLOSED_LIMIT_LIFT_ID, 
+                                         &physical_closed, 
+                                         false);
+            
+            esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
+                                         ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                         ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+                                         ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_ID, 
+                                         &installed_open, 
+                                         false);
+
+            esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
+                                         ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                         ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+                                         ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_ID, 
+                                         &lift_value, 
+                                         false);
+            
+            esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
+                                         ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                         ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+                                         ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_PERCENTAGE_ID, 
+                                         &lift_percentage, 
+                                         false);
+
+        } else {
+            ESP_LOGW(TAG, "Attribute 'ESP_ZB_ZCL_ATTR_WINDOW_COVERING_PHYSICAL_CLOSED_LIMIT_LIFT_ID' or 'ESP_ZB_ZCL_ATTR_WINDOW_COVERING_INSTALLED_OPEN_LIMIT_LIFT_ID' not found");
+        }
+    } else {
+        esp_zb_zcl_attr_t * attribute_current_position = esp_zb_zcl_get_attribute(HA_WINDOW_COVERING_ENDPOINT, 
+                                                                                ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                                                                ESP_ZB_ZCL_CLUSTER_SERVER_ROLE, 
+                                                                                ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_ID);
+
+        if (attribute_current_position != NULL) {
+            uint16_t current_position = *(uint16_t *)(attribute_current_position->data_p);
+            ESP_LOGI(TAG, "Update installed closed limit attribute and stepper driver step max to %d", current_position);
+            stepper_motor_driver.step_max = current_position + 1;
+            uint8_t lift_percentage = 100;
+
+            esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
+                                         ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                         ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+                                         ESP_ZB_ZCL_ATTR_WINDOW_COVERING_INSTALLED_CLOSED_LIMIT_LIFT_ID, 
+                                         &current_position, 
+                                         false);
+
+            esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
+                                         ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                         ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+                                         ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_PERCENTAGE_ID, 
+                                         &lift_percentage, 
+                                         false);
+        } else {
+            ESP_LOGW(TAG, "Attribute 'ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_ID' not found");
+        }
     }
+    esp_zb_lock_release();
 }
 
 void button_init(uint32_t button_num)
@@ -80,50 +169,43 @@ void button_init(uint32_t button_num)
         .gpio_button_config = {
             .gpio_num = button_num,
             .active_level = BUTTON_ACTIVE_LEVEL
-#if CONFIG_GPIO_BUTTON_SUPPORT_POWER_SAVE
-            .enable_power_save = true,
-#endif
         },
     };
     button_handle_t btn = iot_button_create(&btn_cfg);
     
     assert(btn);
-    esp_err_t err = iot_button_register_cb(btn, BUTTON_SINGLE_CLICK, button_event_cb, (void *)BUTTON_SINGLE_CLICK);
-    err |= iot_button_register_cb(btn, BUTTON_DOUBLE_CLICK, button_event_cb, (void *)BUTTON_DOUBLE_CLICK);
+    esp_err_t err = iot_button_register_cb(btn, BUTTON_DOUBLE_CLICK, button_double_click_event_cb, (void *)BUTTON_DOUBLE_CLICK);
     ESP_ERROR_CHECK(err);
 }
 
-static void update_step_handler(int16_t* step, int16_t* min, int16_t* max)
+static void update_step_handler(uint16_t* step, uint16_t* min, uint16_t* max)
 {
     esp_zb_lock_acquire(portMAX_DELAY);
-    static int8_t last_set_lift_percentage = 0;
     int16_t lift_value = *step;
-    int16_t lift_total_steps = *max - *min;
+    uint16_t lift_total_steps = *max - *min;
     if (lift_total_steps == 0) {
         ESP_LOGW(TAG, "Limits recalibration required.");
         return;
     }
     
-    int8_t lift_percentage = (100.0 * lift_value) / lift_total_steps;
+    uint8_t lift_percentage = (100.0 * lift_value) / lift_total_steps;
 
-    if (abs(last_set_lift_percentage - lift_percentage) >= 1) {
-        ESP_LOGI(TAG, "Step Number: %d", lift_value);
-        ESP_LOGI(TAG, "Percentage: %d", lift_percentage);
+    ESP_LOGI(TAG, "Step Number: %d", lift_value);
+    ESP_LOGI(TAG, "Percentage: %d", lift_percentage);
 
-        esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
-                                    ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
-                                    ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-                                    ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_PERCENTAGE_ID, 
-                                    &lift_percentage, 
-                                    false);
-        esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
-                                    ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
-                                    ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-                                    ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_ID, 
-                                    &lift_value, 
-                                    false);
-        last_set_lift_percentage = lift_percentage;
-    }
+    esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
+                                ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+                                ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_PERCENTAGE_ID, 
+                                &lift_percentage, 
+                                false);
+    esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
+                                ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+                                ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_ID, 
+                                &lift_value, 
+                                false);
+
     esp_zb_lock_release();
 }
 
@@ -131,8 +213,9 @@ static esp_err_t deferred_driver_init(void)
 {
     /* Initialize stepper driver */
     init_stepper_driver(&stepper_motor_driver, 1, 2, 3, &update_step_handler);
-    set_rpm(&stepper_motor_driver, 12);
+    set_rpm(&stepper_motor_driver, 150);
     button_init(BOOT_BUTTON_NUM);
+    light_driver_init(active_config);
     return ESP_OK;
 }
 
@@ -206,7 +289,7 @@ static esp_err_t zb_window_covering_handler(const esp_zb_zcl_window_covering_mov
         break;
     case ESP_ZB_ZCL_CMD_WINDOW_COVERING_STOP:
         ESP_LOGI(TAG, "Stop\n");
-        stop_move_task(&stepper_motor_driver);
+        stepper_motor_driver.stop_task = true;
         break;
     case ESP_ZB_ZCL_CMD_WINDOW_COVERING_GO_TO_LIFT_PERCENTAGE:
         ESP_LOGI(TAG, "Go to lift percentage: %d\n", message->payload.percentage_lift_value);
@@ -304,13 +387,15 @@ static void esp_zb_task(void *pvParameters)
 
     uint8_t current_lift_percentage = 0x00;
     uint16_t installed_open_limit_lift = 0x0000;
-    uint16_t installed_closed_limit_lift = 0xffff;
+    uint16_t installed_closed_limit_lift = 0x1770;
+    uint16_t physical_closed_limit_lift = 0xffff;
     uint16_t current_position_lift = ESP_ZB_ZCL_WINDOW_COVERING_CURRENT_POSITION_LIFT_DEFAULT_VALUE;
 
     esp_zb_window_covering_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_PERCENTAGE_ID, &current_lift_percentage);
     esp_zb_window_covering_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_INSTALLED_OPEN_LIMIT_LIFT_ID, &installed_open_limit_lift);
     esp_zb_window_covering_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_INSTALLED_CLOSED_LIMIT_LIFT_ID, &installed_closed_limit_lift);
     esp_zb_window_covering_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_ID, &current_position_lift);
+    esp_zb_window_covering_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_PHYSICAL_CLOSED_LIMIT_LIFT_ID, &physical_closed_limit_lift);
 
     esp_zb_cluster_list_add_window_covering_cluster(cluster_list, window_attr_list, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
 
