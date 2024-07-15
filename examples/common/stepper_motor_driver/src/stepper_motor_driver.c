@@ -35,9 +35,7 @@ static const char *TAG = "ESP_STEPPER_DRIVER";
 
 static esp_step_callback_t func_ptr;
 
-#define TOTAL_STEPS 4096 // or whatever is appropriate for your stepper
-#define TOTAL_PATTERNS 8
-#define NUM_PINS 4
+#define TOTAL_STEPS 200
 
 static QueueHandle_t stepper_queue;
 typedef struct {
@@ -46,46 +44,62 @@ typedef struct {
 } stepper_event_t;
 gptimer_handle_t gptimer;
 
-static bool timer_on_alarm_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx)
-{
+typedef enum {
+    TIMER_STATE_RUNNING,
+    TIMER_STATE_DEINITIALIZED,
+    TIMER_STATE_INITIALIZED,
+} timer_state_t;
+
+static timer_state_t timer_state = TIMER_STATE_DEINITIALIZED;
+
+static bool timer_on_alarm_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx) {
     BaseType_t high_task_awoken = pdFALSE;
     stepper_event_t event = {
         .event_count = edata->count_value,
-        .driver = (stepper_driver *)user_ctx  // Retrieve driver reference
+        .driver = (stepper_driver *)user_ctx
     };
-    // Send event to the queue
     xQueueSendFromISR(stepper_queue, &event, &high_task_awoken);
-    // Return whether we need to yield at the end of ISR
     return high_task_awoken == pdTRUE;
 }
 
-static void stepper_task(void *arg)
-{
+static void move_task(void *param) {
+
+    stepper_driver *driver = (stepper_driver *)param;
+
     stepper_event_t event;
 
-    if (xQueueReceive(stepper_queue, &event, portMAX_DELAY)) {
-        event.driver->clockwise = set_direction(event.driver);
-    }
-
     while (true) {
+        if (driver->stop_task) {
+            stop_move_task(driver);
+            driver->task_handle = NULL;
+            vTaskDelete(NULL);
+        }
+
         if (xQueueReceive(stepper_queue, &event, portMAX_DELAY)) {
-            if ((!event.driver->clockwise && event.driver->step_goal >= event.driver->step_n) ||
-                (event.driver->clockwise && event.driver->step_goal <= event.driver->step_n)) {
-                stop_move_task(event.driver);
+            // Check is goal is reached
+            if ((!driver->pos_dir && driver->step_n <= driver->step_goal) ||
+                (driver->pos_dir && driver->step_n >= driver->step_goal)) {
+                driver->stop_task = true;
+            } else {
+                // Make next step
+                step(driver);
+                // Call cb function to update attributes
+                if (!(driver->step_n % 100) ||
+                    (!driver->pos_dir && driver->step_goal == driver->step_n + 1) ||
+                    (driver->pos_dir && driver->step_goal == driver->step_n - 1)) {
+                    (*func_ptr)(&driver->step_n, &driver->step_min, &driver->step_max);
+                }
             }
-            step(event.driver); 
+            
         }
     }
 }
 
-void init_timer(stepper_driver *driver)
-{
+void init_timer(stepper_driver *driver) {
     stepper_queue = xQueueCreate(10, sizeof(stepper_event_t));
     assert(stepper_queue != NULL);
 
-    // Create the stepper task
-    xTaskCreate(stepper_task, "Stepper Task", 4096, NULL, 10, NULL);
-
+    // Create timer
     ESP_LOGI(TAG, "Create timer handle");
     gptimer = NULL;
     gptimer_config_t timer_config = {
@@ -105,35 +119,54 @@ void init_timer(stepper_driver *driver)
     gptimer_event_callbacks_t cbs = {
         .on_alarm = timer_on_alarm_cb,
     };
-    ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, driver));
+    ESP_ERROR_CHECK(gptimer_register_event_callbacks(gptimer, &cbs, driver));   
+
+    timer_state = TIMER_STATE_INITIALIZED; 
+}
+
+void start_timer() {
+    if (timer_state != TIMER_STATE_INITIALIZED || gptimer == NULL) return;
 
     ESP_LOGI(TAG, "Enable timer");
     ESP_ERROR_CHECK(gptimer_enable(gptimer));
     ESP_LOGI(TAG, "Start timer");
     ESP_ERROR_CHECK(gptimer_start(gptimer));
+
+    timer_state = TIMER_STATE_RUNNING;
 }
 
-void deinit_timer()
-{
+void stop_timer() {
+    if (timer_state != TIMER_STATE_RUNNING || gptimer == NULL) return;
+
     ESP_LOGI(TAG, "Stop timer");
     ESP_ERROR_CHECK(gptimer_stop(gptimer));
     ESP_LOGI(TAG, "Disable timer");
     ESP_ERROR_CHECK(gptimer_disable(gptimer));
-    ESP_LOGI(TAG, "Delete timer");
-    ESP_ERROR_CHECK(gptimer_del_timer(gptimer));
-    gptimer = NULL;
+
+    timer_state = TIMER_STATE_INITIALIZED;
 }
 
-void init_stepper_driver(stepper_driver *driver, int16_t pin_step, int16_t pin_dir, int16_t pin_sleep, esp_step_callback_t cb) {
+void delete_timer() {
+    if (timer_state == TIMER_STATE_DEINITIALIZED || gptimer == NULL) return;
+    if (timer_state == TIMER_STATE_RUNNING) stop_timer();
+    ESP_LOGI(TAG, "Delete timer");
+    ESP_ERROR_CHECK(gptimer_del_timer(gptimer));
+    
+    gptimer = NULL;
+    timer_state = TIMER_STATE_DEINITIALIZED;
+}
+
+void init_stepper_driver(stepper_driver *driver, uint8_t pin_step, uint8_t pin_dir, uint8_t pin_sleep, esp_step_callback_t cb) {
     driver->pin_dir = pin_dir;
     driver->pin_step = pin_step;
     driver->pin_sleep = pin_sleep;
-    driver->step_n = 0;
+    driver->step_n = 1;
     driver->step_min = 0;
-    driver->step_max = 200 * 30;
+    driver->step_max = 6000;
     driver->step_goal = 0;
     driver->delay_us = 2000;
     driver->task_handle = NULL;
+    driver->pos_dir = true;
 
     func_ptr = cb;
 
@@ -143,77 +176,74 @@ void init_stepper_driver(stepper_driver *driver, int16_t pin_step, int16_t pin_d
 
     /* init in sleep mode */
     gpio_set_level(driver->pin_sleep, 1);
+
+    // Init timer
+    init_timer(driver);
 }
 
-void set_rpm(stepper_driver *driver, int16_t rpm) {
-    if (rpm < 6) return;
-    if (rpm >= 24) {
+void set_rpm(stepper_driver *driver, uint16_t rpm) {
+    if (rpm < 30) {
+        driver->delay_us = 10000;
+        return;
+    } 
+    if (rpm >= 300) {
         driver->delay_us = 1000;
         return;
     }
-    driver->delay_us = 1000; // (60 * 1000000UL) / (TOTAL_STEPS * rpm);
+    driver->delay_us = (60 * 1000000UL) / (TOTAL_STEPS * rpm);
 }
 
 void stop_move_task(stepper_driver *driver) {
     ESP_LOGW(TAG, "Stop Move Task\n");
     gpio_set_level(driver->pin_sleep, 1);
-    driver->running = false;
     if (driver->task_handle != NULL) {
-        vTaskDelete(driver->task_handle);
-        driver->task_handle = NULL;
+        driver->stop_task = true;
     }
-    if(gptimer != NULL) deinit_timer();
+    if (gptimer != NULL) stop_timer();
 }
 
-void start_move_task(stepper_driver *driver, int8_t percentage) {
-    driver->step_goal = (percentage / 100.0) * (driver->step_max - driver->step_min) ;
-    driver->running = true;
-    if (driver->task_handle != NULL) stop_move_task(driver);
-    if (driver->step_goal > driver->step_n){
-        ESP_LOGW(TAG, "Start Move Up\n");
-    } else {
-        ESP_LOGW(TAG, "Start Move Down\n");
+void start_move_task(stepper_driver *driver, uint8_t percentage) {
+    // Calculate step goal from percentage
+    driver->step_goal = (percentage / 100.0) * (driver->step_max - driver->step_min);
+    driver->step_goal = driver->step_goal > driver->step_max ? driver->step_max : driver->step_goal < driver->step_min ? driver->step_min : driver->step_goal; 
+    
+    // Check for running move task
+    if (driver->task_handle != NULL) driver->stop_task = true;
+
+    // Wait for task to finish
+    for(size_t i = 0; i < 10; ++i) {
+        if(driver->task_handle != NULL) vTaskDelay(10);
+        else break;
     }
+    // return if task did not finish
+    if (driver->task_handle != NULL) return;
+    
+    // Enable stepper driver
     gpio_set_level(driver->pin_sleep, 0);
-    vTaskDelay(1);
-    xTaskCreate(move_task, "move_stepper_motor", 4096, driver, 10,  &(driver->task_handle));
 
-    if(gptimer != NULL) deinit_timer();
-    init_timer(driver);
-}
+    // Reset the stop_task flag
+    driver->stop_task = false;
 
-void move_task(void *param)
-{
-    stepper_driver *driver = (stepper_driver *)param;
+    // Calculate required turning direction
+    driver->pos_dir = set_direction(driver);
 
-    while(driver->running) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+    // Enable timer
+    start_timer();
 
-    vTaskDelete(driver->task_handle);
+    // Create the stepper task
+    ESP_LOGW(TAG, "Start Move Task\n");
+    xTaskCreate(move_task, "Move Task", 4096, driver, 10, &(driver->task_handle));
 }
     
 bool set_direction(stepper_driver *driver) {
-    if(driver->step_goal > driver->step_n){
-        gpio_set_level(driver->pin_dir, 0);
-        return true;
-    } else {
-        gpio_set_level(driver->pin_dir, 1);
-        return false;
-    }
+    bool dir = driver->step_goal > driver->step_n;
+    gpio_set_level(driver->pin_dir, dir);
+    return dir;
 }
 
 void step(stepper_driver *driver) {
-    if(driver->toggle_step){
-        gpio_set_level(driver->pin_step, 1);
-    } else {
-        gpio_set_level(driver->pin_step, 0);
-    }
-
+    bool level = driver->toggle_step ? 1 : 0;
+    gpio_set_level(driver->pin_step, level);
+    driver->step_n += driver->pos_dir ? 1 : -1;
     driver->toggle_step = !driver->toggle_step;
-
-    // Update the step count
-    driver->step_n += driver->clockwise ? 1 : -1;
-
-    (*func_ptr)(&driver->step_n, &driver->step_min, &driver->step_max);
 }
