@@ -68,7 +68,7 @@ static void move_task(void *param) {
 
     stepper_event_t event;
 
-    while (true) {
+    for (;;) {
         if (driver->stop_task) {
             stop_move_task(driver);
             driver->task_handle = NULL;
