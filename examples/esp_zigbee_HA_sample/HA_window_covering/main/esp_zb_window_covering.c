@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: CC0-1.0
  *
- * Zigbee HA_on_off_light Example
+ * Zigbee HA_window_covering Example
  *
  * This example code is in the Public Domain (or CC0 licensed, at your option.)
  *
@@ -12,35 +12,129 @@
  * CONDITIONS OF ANY KIND, either express or implied.
  */
 #include "esp_zb_window_covering.h"
-#include "stepper_motor_driver.h"
+#include "stepper_motor_driver.h" // custom stepper motor driver
 
+#include "stdio.h"
 #include "string.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_pm.h"
+#include "esp_sleep.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ha/esp_zigbee_ha_standard.h"
-#include "zboss_api.h"
+#include "iot_button.h"
+#include "esp_idf_version.h"
+
+#define BOOT_BUTTON_NUM         9
+#define BUTTON_ACTIVE_LEVEL     0
 
 #define ARRAY_LENTH(arr) (sizeof(arr) / sizeof(arr[0]))
 
 #if defined ZB_ED_ROLE
-#error Define ZB_COORDINATOR_ROLE in idf.py menuconfig to compile thermostat source code.
+#error Define ZB_COORDINATOR_ROLE in idf.py menuconfig to compile window covering source code.
 #endif
 
 static const char *TAG = "ESP_ZB_WINDOW_COVERING";
 static stepper_driver stepper_motor_driver;
 
-char modelid[] = {24, 'E', 'S', 'P', '3', '2', '-', 'H', '2', '-', 'W', 'i', 'n', 'd', 'o', 'w', '-', 'C', 'o', 'v', 'e', 'r', 'i', 'n', 'g'};
+static const char *TAG_BUTTON = "BUTTON_POWER_SAVE";
+
+const char *button_event_table[] = {
+    "BUTTON_PRESS_DOWN",
+    "BUTTON_PRESS_UP",
+    "BUTTON_PRESS_REPEAT",
+    "BUTTON_PRESS_REPEAT_DONE",
+    "BUTTON_SINGLE_CLICK",
+    "BUTTON_DOUBLE_CLICK",
+    "BUTTON_MULTIPLE_CLICK",
+    "BUTTON_LONG_PRESS_START",
+    "BUTTON_LONG_PRESS_HOLD",
+    "BUTTON_LONG_PRESS_UP",
+};
+
+char modelid[] = {24, 'E', 'S', 'P', '3', '2', '-', 'C', '6', '-', 'W', 'i', 'n', 'd', 'o', 'w', '-', 'C', 'o', 'v', 'e', 'r', 'i', 'n', 'g'};
 char manufname[] = {9, 'E', 's', 'p', 'r', 'e', 's', 's', 'i', 'f'};
 
+#define BOOT_BUTTON_NUM 9
+
 /********************* Define functions **************************/
+
+static void button_event_cb(void *arg, void *data)
+{
+    ESP_LOGI(TAG_BUTTON, "Button event %s", button_event_table[(button_event_t)data]);
+    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+    if (cause != ESP_SLEEP_WAKEUP_UNDEFINED) {
+        ESP_LOGI(TAG_BUTTON, "Wake up from light sleep, reason %d", cause);
+    }
+}
+
+void button_init(uint32_t button_num)
+{
+    button_config_t btn_cfg = {
+        .type = BUTTON_TYPE_GPIO,
+        .gpio_button_config = {
+            .gpio_num = button_num,
+            .active_level = BUTTON_ACTIVE_LEVEL
+            // .enable_power_save = true,
+        },
+    };
+    button_handle_t btn = iot_button_create(&btn_cfg);
+    
+    assert(btn);
+    esp_err_t err = iot_button_register_cb(btn, BUTTON_PRESS_DOWN, button_event_cb, (void *)BUTTON_PRESS_DOWN);
+    err |= iot_button_register_cb(btn, BUTTON_PRESS_UP, button_event_cb, (void *)BUTTON_PRESS_UP);
+    err |= iot_button_register_cb(btn, BUTTON_PRESS_REPEAT, button_event_cb, (void *)BUTTON_PRESS_REPEAT);
+    err |= iot_button_register_cb(btn, BUTTON_PRESS_REPEAT_DONE, button_event_cb, (void *)BUTTON_PRESS_REPEAT_DONE);
+    err |= iot_button_register_cb(btn, BUTTON_SINGLE_CLICK, button_event_cb, (void *)BUTTON_SINGLE_CLICK);
+    err |= iot_button_register_cb(btn, BUTTON_DOUBLE_CLICK, button_event_cb, (void *)BUTTON_DOUBLE_CLICK);
+    err |= iot_button_register_cb(btn, BUTTON_LONG_PRESS_START, button_event_cb, (void *)BUTTON_LONG_PRESS_START);
+    err |= iot_button_register_cb(btn, BUTTON_LONG_PRESS_HOLD, button_event_cb, (void *)BUTTON_LONG_PRESS_HOLD);
+    err |= iot_button_register_cb(btn, BUTTON_LONG_PRESS_UP, button_event_cb, (void *)BUTTON_LONG_PRESS_UP);
+    ESP_ERROR_CHECK(err);
+}
+
+static void update_step_handler(int16_t* step, int16_t* min, int16_t* max)
+{
+    esp_zb_lock_acquire(portMAX_DELAY);
+    static int8_t last_set_lift_percentage = 0;
+    int16_t lift_value = *step;
+    int16_t lift_total_steps = *max - *min;
+    if (lift_total_steps == 0) {
+        ESP_LOGW(TAG, "Limits recalibration required.");
+        return;
+    }
+    
+    int8_t lift_percentage = (100.0 * lift_value) / lift_total_steps;
+
+    if (abs(last_set_lift_percentage - lift_percentage) >= 1) {
+        ESP_LOGI(TAG, "Step Number: %d", lift_value);
+        ESP_LOGI(TAG, "Percentage: %d", lift_percentage);
+
+        esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
+                                    ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                    ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+                                    ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_PERCENTAGE_ID, 
+                                    &lift_percentage, 
+                                    false);
+        esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
+                                    ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                    ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+                                    ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_ID, 
+                                    &lift_value, 
+                                    false);
+        last_set_lift_percentage = lift_percentage;
+    }
+    esp_zb_lock_release();
+}
+
 static esp_err_t deferred_driver_init(void)
 {
     /* Initialize stepper driver */
-    init_stepper_driver(&stepper_motor_driver, 11, 25, 12, 8);
+    init_stepper_driver(&stepper_motor_driver, 1, 2, 3, &update_step_handler);
     set_rpm(&stepper_motor_driver, 12);
+    button_init(BOOT_BUTTON_NUM);
     return ESP_OK;
 }
 
@@ -51,7 +145,7 @@ static void bdb_start_top_level_commissioning_cb(uint8_t mode_mask)
 
 void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
 {
-    uint32_t *p_sg_p       = signal_struct->p_app_signal;
+    uint32_t *p_sg_p = signal_struct->p_app_signal;
     esp_err_t err_status = signal_struct->esp_err_status;
     esp_zb_app_signal_type_t sig_type = *p_sg_p;
     switch (sig_type) {
@@ -95,25 +189,64 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
     }
 }
 
+static esp_err_t zb_window_covering_handler(const esp_zb_zcl_window_covering_movement_message_t *message)
+{
+    esp_err_t ret = ESP_OK;
+
+    ESP_RETURN_ON_FALSE(message, ESP_FAIL, TAG, "Empty message");
+    ESP_RETURN_ON_FALSE(message->info.status == ESP_ZB_ZCL_STATUS_SUCCESS, ESP_ERR_INVALID_ARG, TAG, "Received message: error status(%d)",
+                        message->info.status);
+
+    switch (message->command) {
+    case ESP_ZB_ZCL_CMD_WINDOW_COVERING_UP_OPEN:
+        ESP_LOGI(TAG, "Open up\n");
+        start_move_task(&stepper_motor_driver, 0);
+        break;
+    case ESP_ZB_ZCL_CMD_WINDOW_COVERING_DOWN_CLOSE:
+        ESP_LOGI(TAG, "Down close\n");
+        start_move_task(&stepper_motor_driver, 100);
+        break;
+    case ESP_ZB_ZCL_CMD_WINDOW_COVERING_STOP:
+        ESP_LOGI(TAG, "Stop\n");
+        stop_move_task(&stepper_motor_driver);
+        break;
+    case ESP_ZB_ZCL_CMD_WINDOW_COVERING_GO_TO_LIFT_PERCENTAGE:
+        ESP_LOGI(TAG, "Go to lift percentage: %d\n", message->payload.percentage_lift_value);
+        start_move_task(&stepper_motor_driver, message->payload.percentage_lift_value);
+        break;
+    case ESP_ZB_ZCL_CMD_WINDOW_COVERING_GO_TO_LIFT_VALUE:
+        ESP_LOGI(TAG, "Go to lift value: %d\n", message->payload.lift_value);
+        break;
+    case ESP_ZB_ZCL_CMD_WINDOW_COVERING_GO_TO_TILT_PERCENTAGE:
+        ESP_LOGI(TAG, "Go to tilt percentage not implemented.\n");
+        break;
+    case ESP_ZB_ZCL_CMD_WINDOW_COVERING_GO_TO_TILT_VALUE:
+        ESP_LOGI(TAG, "Go to tilt value not implemented.\n");
+        break;
+    default:
+        break;
+    }
+
+    return ret;
+}
+
 static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t *message)
 {
     esp_err_t ret = ESP_OK;
-    // bool light_state = 0;
 
     ESP_RETURN_ON_FALSE(message, ESP_FAIL, TAG, "Empty message");
     ESP_RETURN_ON_FALSE(message->info.status == ESP_ZB_ZCL_STATUS_SUCCESS, ESP_ERR_INVALID_ARG, TAG, "Received message: error status(%d)",
                         message->info.status);
     ESP_LOGI(TAG, "Received message: endpoint(%d), cluster(0x%x), attribute(0x%x), data size(%d)", message->info.dst_endpoint, message->info.cluster,
              message->attribute.id, message->attribute.data.size);
-    // if (message->info.dst_endpoint == HA_ESP_LIGHT_ENDPOINT) {
-    //     if (message->info.cluster == ESP_ZB_ZCL_CLUSTER_ID_ON_OFF) {
-    //         if (message->attribute.id == ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_BOOL) {
-    //             light_state = message->attribute.data.value ? *(bool *)message->attribute.data.value : light_state;
-    //             ESP_LOGI(TAG, "Light sets to %s", light_state ? "On" : "Off");
-    //             light_driver_set_power(light_state);
-    //         }
-    //     }
-    // }
+    if (message->info.dst_endpoint == HA_WINDOW_COVERING_ENDPOINT)
+    {
+        if (message->info.cluster == ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING)
+        {
+            ESP_LOGI(TAG, "Window covering cluster, attribute ID: 0x%x", message->attribute.id);
+        }
+    }
+
     return ret;
 }
 
@@ -124,133 +257,14 @@ static esp_err_t zb_action_handler(esp_zb_core_action_callback_id_t callback_id,
     case ESP_ZB_CORE_SET_ATTR_VALUE_CB_ID:
         ret = zb_attribute_handler((esp_zb_zcl_set_attr_value_message_t *)message);
         break;
+    case ESP_ZB_CORE_WINDOW_COVERING_MOVEMENT_CB_ID:
+        ret = zb_window_covering_handler((esp_zb_zcl_window_covering_movement_message_t *)message);
+        break;
     default:
         ESP_LOGW(TAG, "Receive Zigbee action(0x%x) callback", callback_id);
         break;
     }
     return ret;
-}
-
-bool raw_command_handler(zb_uint8_t bufid)
-{
-    printf("raw cmd:\n");
-    uint8_t buf[zb_buf_len(bufid)];
-    zb_zcl_parsed_hdr_t *cmd_info = ZB_BUF_GET_PARAM(bufid, zb_zcl_parsed_hdr_t);
-    printf("cluster_id: 0x%x \n", cmd_info->cluster_id);
-    printf("profile_id: 0x%x \n", cmd_info->profile_id);
-    printf("cmd_id: %d \n", cmd_info->cmd_id);
-    printf("cmd_direction: %d \n", cmd_info->cmd_direction);
-    printf("seq_number: %d \n", cmd_info->seq_number);
-    printf("is_common_command: %d \n", cmd_info->is_common_command);
-    printf("disable_default_response: %d \n", cmd_info->disable_default_response);
-    printf("is_manuf_specific: %d \n", cmd_info->is_manuf_specific);
-    printf("manuf_specific: %d \n", cmd_info->manuf_specific);
-    memcpy(buf, zb_buf_begin(bufid), sizeof(buf));
-    ESP_LOGI("RAW", "bufid: %d size: %d", bufid, sizeof(buf));
-    for (int i = 0; i < sizeof(buf); ++i) {
-        printf("0x%02X ", buf[i]);
-    }
-    printf("\n");
-
-    // if (cmd_info->is_common_command)
-    // {
-    //     return true;
-    // }
-
-    if (cmd_info->cluster_id == ESP_ZB_ZCL_CLUSTER_ID_BASIC)
-    {
-        ESP_LOGW(TAG, "Basic Cluster\n\n");
-        return false;
-    }
-    else if (cmd_info->cluster_id == ZB_ZCL_CLUSTER_ID_WINDOW_COVERING)
-    {
-        ESP_LOGW(TAG, "Window Covering\n\n");
-        zb_uint8_t command_id = cmd_info->cmd_id;
-        switch (command_id)
-        {
-        case ESP_ZB_ZCL_CMD_WINDOW_COVERING_UP_OPEN:
-            ESP_LOGW(TAG, "Open up\n");
-            start_move_task(&stepper_motor_driver, true);
-            return true;
-            break;
-        case ESP_ZB_ZCL_CMD_WINDOW_COVERING_DOWN_CLOSE:
-            ESP_LOGW(TAG, "Down close\n");
-            start_move_task(&stepper_motor_driver, false);
-            return true;
-            break;
-        case ESP_ZB_ZCL_CMD_WINDOW_COVERING_STOP:
-            ESP_LOGW(TAG, "Stop\n");
-            stop_move_task(&stepper_motor_driver);
-            return true;
-            break;
-        case ESP_ZB_ZCL_CMD_WINDOW_COVERING_GO_TO_LIFT_PERCENTAGE:
-            ESP_LOGW(TAG, "Go to lift percentage\n");
-            return true;
-            break;
-        case ESP_ZB_ZCL_CMD_WINDOW_COVERING_GO_TO_LIFT_VALUE:
-            ESP_LOGW(TAG, "Go to tilt value\n");
-            return true;
-            break;
-        case ESP_ZB_ZCL_CMD_WINDOW_COVERING_GO_TO_TILT_PERCENTAGE:
-            ESP_LOGW(TAG, "Go to tilt percentage\n");
-            return true;
-            break;
-        case ESP_ZB_ZCL_CMD_WINDOW_COVERING_GO_TO_TILT_VALUE:
-            ESP_LOGW(TAG, "Go to tilt value\n");
-            return true;
-            break;
-        default:
-            return false;
-            break;
-        }
-    }
-    else 
-    {
-        ESP_LOGW(TAG, "Other\n\n");
-        return false;
-    }
-    return false;
-}
-
-static esp_zb_cluster_list_t *custom_window_covering_clusters_create()
-{
-    esp_zb_cluster_list_t *cluster_list = esp_zb_zcl_cluster_list_create();
-    /* Set the NULL to esp_zb_window_covering_cluster_create() means that using the default attribute value for window covering cluster */
-    esp_zb_attribute_list_t *esp_zb_basic_cluster = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_BASIC);
-    esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID, &modelid[0]);
-    esp_zb_basic_cluster_add_attr(esp_zb_basic_cluster, ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID, &manufname[0]);
-    esp_zb_cluster_list_add_basic_cluster(cluster_list, esp_zb_basic_cluster, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
-
-    esp_zb_attribute_list_t *window_attr_list = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING);
-    esp_zb_window_covering_cluster_cfg_t config = {
-        .covering_type = ESP_ZB_ZCL_ATTR_WINDOW_COVERING_TYPE_ROLLERSHADE,
-        .covering_status = ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CONFIG_LIFT_CONTROL_IS_CLOSED_LOOP,
-        .covering_mode = ESP_ZB_ZCL_WINDOW_COVERING_MODE_DEFAULT_VALUE,
-    };
-
-    esp_zb_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_WINDOW_COVERING_TYPE_ID,
-                            ESP_ZB_ZCL_ATTR_TYPE_8BIT_ENUM, ESP_ZB_ZCL_ATTR_ACCESS_READ_ONLY, &config.covering_type);
-    esp_zb_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CONFIG_STATUS_ID,
-                            ESP_ZB_ZCL_ATTR_TYPE_8BITMAP, ESP_ZB_ZCL_ATTR_ACCESS_READ_ONLY, &config.covering_status);
-    esp_zb_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_MODE_ID,
-                            ESP_ZB_ZCL_ATTR_TYPE_8BITMAP, ESP_ZB_ZCL_ATTR_ACCESS_READ_WRITE, &config.covering_mode);
-    
-    uint8_t current_tilt_percentage = 0;
-    uint16_t installed_open_limit_tilt = 0x0000;
-    uint16_t installed_closed_limit_tilt = 0xffff;
-    uint16_t current_position_tilt = ESP_ZB_ZCL_WINDOW_COVERING_CURRENT_POSITION_TILT_DEFAULT_VALUE;
-
-    esp_zb_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_TILT_PERCENTAGE_ID,
-                            ESP_ZB_ZCL_ATTR_TYPE_8BIT, ESP_ZB_ZCL_ATTR_ACCESS_READ_ONLY | ESP_ZB_ZCL_ATTR_ACCESS_REPORTING, &current_tilt_percentage);
-    esp_zb_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_INSTALLED_OPEN_LIMIT_TILT_ID,
-                            ESP_ZB_ZCL_ATTR_TYPE_16BIT, ESP_ZB_ZCL_ATTR_ACCESS_READ_ONLY, &installed_open_limit_tilt);
-    esp_zb_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_INSTALLED_CLOSED_LIMIT_TILT_ID,
-                            ESP_ZB_ZCL_ATTR_TYPE_16BIT, ESP_ZB_ZCL_ATTR_ACCESS_READ_ONLY, &installed_closed_limit_tilt);
-    esp_zb_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_TILT_ID,
-                            ESP_ZB_ZCL_ATTR_TYPE_16BIT, ESP_ZB_ZCL_ATTR_ACCESS_READ_ONLY, &current_position_tilt);
-    esp_zb_cluster_list_add_window_covering_cluster(cluster_list, window_attr_list, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
-
-    return cluster_list;
 }
 
 static void esp_zb_task(void *pvParameters)
@@ -267,14 +281,45 @@ static void esp_zb_task(void *pvParameters)
         .app_device_id = ESP_ZB_HA_WINDOW_COVERING_DEVICE_ID,
         .app_device_version = 0,
     };
-    esp_zb_ep_list_add_ep(esp_zb_window_covering_ep, custom_window_covering_clusters_create(), endpoint_config);
 
-    /* Register the device */
+    esp_zb_cluster_list_t *cluster_list = esp_zb_zcl_cluster_list_create();
+
+    /* Create basic cluster */
+    esp_zb_attribute_list_t *basic_attr_list = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_BASIC);
+    esp_zb_basic_cluster_add_attr(basic_attr_list, ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID, modelid);
+    esp_zb_basic_cluster_add_attr(basic_attr_list, ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID, manufname);
+    esp_zb_cluster_list_add_basic_cluster(cluster_list, basic_attr_list, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    
+    /* Create window covering cluster */
+    esp_zb_attribute_list_t *window_attr_list = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING);
+    esp_zb_window_covering_cluster_cfg_t config = {
+        .covering_type = ESP_ZB_ZCL_ATTR_WINDOW_COVERING_TYPE_ROLLERSHADE,
+        .covering_status = ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CONFIG_OPERATIONAL,
+        .covering_mode = ESP_ZB_ZCL_ATTR_WINDOW_COVERING_TYPE_MOTOR_IS_RUNNING_IN_MAINTENANCE_MODE,
+    };
+    esp_zb_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_WINDOW_COVERING_TYPE_ID,
+                            ESP_ZB_ZCL_ATTR_TYPE_8BIT_ENUM, ESP_ZB_ZCL_ATTR_ACCESS_READ_ONLY, &config.covering_type);
+    esp_zb_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CONFIG_STATUS_ID,
+                            ESP_ZB_ZCL_ATTR_TYPE_8BITMAP, ESP_ZB_ZCL_ATTR_ACCESS_READ_ONLY, &config.covering_status);
+    esp_zb_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_MODE_ID,
+                            ESP_ZB_ZCL_ATTR_TYPE_8BITMAP, ESP_ZB_ZCL_ATTR_ACCESS_READ_WRITE, &config.covering_mode);
+
+    uint8_t current_lift_percentage = 0x00;
+    uint16_t installed_open_limit_lift = 0x0000;
+    uint16_t installed_closed_limit_lift = 0xffff;
+    uint16_t current_position_lift = ESP_ZB_ZCL_WINDOW_COVERING_CURRENT_POSITION_LIFT_DEFAULT_VALUE;
+
+    esp_zb_window_covering_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_PERCENTAGE_ID, &current_lift_percentage);
+    esp_zb_window_covering_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_INSTALLED_OPEN_LIMIT_LIFT_ID, &installed_open_limit_lift);
+    esp_zb_window_covering_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_INSTALLED_CLOSED_LIMIT_LIFT_ID, &installed_closed_limit_lift);
+    esp_zb_window_covering_cluster_add_attr(window_attr_list, ESP_ZB_ZCL_ATTR_WINDOW_COVERING_CURRENT_POSITION_LIFT_ID, &current_position_lift);
+
+    esp_zb_cluster_list_add_window_covering_cluster(cluster_list, window_attr_list, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+
+    esp_zb_ep_list_add_ep(esp_zb_window_covering_ep, cluster_list, endpoint_config);
     esp_zb_device_register(esp_zb_window_covering_ep);
 
-    esp_zb_raw_command_handler_register(raw_command_handler);
     esp_zb_core_action_handler_register(zb_action_handler);
-
     esp_zb_set_primary_network_channel_set(ESP_ZB_PRIMARY_CHANNEL_MASK);
     ESP_ERROR_CHECK(esp_zb_start(false));
     esp_zb_main_loop_iteration();
