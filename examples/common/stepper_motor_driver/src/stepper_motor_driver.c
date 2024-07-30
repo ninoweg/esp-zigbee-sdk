@@ -31,6 +31,14 @@
 #include "driver/gptimer.h"
 #include <driver/gpio.h>
 
+#include "nvs_flash.h"
+#include "nvs.h"
+
+#define NAMESPACE_STORAGE "cover_storage"
+#define CURRENT_STEP_KEY "cur_step"
+#define MINIMUM_STEP_KEY "min_step"
+#define MAXIMUM_STEP_KEY "max_step"
+
 static const char *TAG = "ESP_STEPPER_DRIVER";
 
 static esp_step_callback_t func_ptr;
@@ -93,6 +101,92 @@ static void move_task(void *param) {
             
         }
     }
+}
+
+static void save_driver_params(stepper_driver *driver)
+{
+    nvs_handle_t my_handle;
+    esp_err_t err;
+
+    // Open
+    err = nvs_open(NAMESPACE_STORAGE, NVS_READWRITE, &my_handle);
+
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
+        return;
+    }
+
+    // Write
+    err = nvs_set_u16(my_handle, CURRENT_STEP_KEY, driver->step_n);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "Could not save current step");
+    } else {
+        ESP_LOGI(TAG, "Saved current step at %d.", driver->step_n);
+    }
+
+    err = nvs_set_u16(my_handle, MINIMUM_STEP_KEY, driver->step_min);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "Could not save minimum step");
+    } else {
+        ESP_LOGI(TAG, "Saved minimum step at %d.", driver->step_min);
+    }
+
+    err = nvs_set_u16(my_handle, MAXIMUM_STEP_KEY, driver->step_max);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "Could not save maximum step");
+    } else {
+        ESP_LOGI(TAG, "Saved maximum step at %d.", driver->step_max);
+    }
+
+
+    // Commit written value
+    ESP_LOGI(TAG, "Committing updates in NVS ... ");
+    err = nvs_commit(my_handle);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "Failed!");
+    } else {
+        ESP_LOGI(TAG, "Done");
+    }
+    // Close
+    nvs_close(my_handle);
+}
+
+static void load_driver_params(stepper_driver *driver)
+{
+    nvs_handle_t my_handle;
+    esp_err_t err;
+
+    // Open
+    err = nvs_open(NAMESPACE_STORAGE, NVS_READONLY, &my_handle);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
+        return;
+    }
+
+    // Read
+    err = nvs_get_u16(my_handle, CURRENT_STEP_KEY, &driver->step_n);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "Could not update current step");
+    } else {
+        ESP_LOGI(TAG, "Updated current step to %d.", driver->step_n);
+    }
+
+    err = nvs_get_u16(my_handle, MINIMUM_STEP_KEY, &driver->step_min);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "Could not update minimum step");
+    } else {
+        ESP_LOGI(TAG, "Updated minimum step to %d.", driver->step_min);
+    }
+
+    err = nvs_get_u16(my_handle, MAXIMUM_STEP_KEY, &driver->step_max);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "Could not update maximum step");
+    } else {
+        ESP_LOGI(TAG, "Updated maximum step to %d.", driver->step_max);
+    }
+
+    // Close
+    nvs_close(my_handle);
 }
 
 void init_timer(stepper_driver *driver) {
@@ -168,6 +262,8 @@ void init_stepper_driver(stepper_driver *driver, uint8_t pin_step, uint8_t pin_d
     driver->task_handle = NULL;
     driver->pos_dir = true;
 
+    load_driver_params(driver);
+
     func_ptr = cb;
 
     gpio_set_direction(driver->pin_dir, GPIO_MODE_OUTPUT);
@@ -200,6 +296,8 @@ void stop_move_task(stepper_driver *driver) {
         driver->stop_task = true;
     }
     if (gptimer != NULL) stop_timer();
+
+    save_driver_params(driver);
 }
 
 void start_move_task(stepper_driver *driver, uint8_t percentage) {

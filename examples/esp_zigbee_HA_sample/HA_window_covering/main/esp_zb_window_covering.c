@@ -212,7 +212,7 @@ static void update_step_handler(uint16_t* step, uint16_t* min, uint16_t* max)
 static esp_err_t deferred_driver_init(void)
 {
     /* Initialize stepper driver */
-    init_stepper_driver(&stepper_motor_driver, 1, 2, 3, &update_step_handler);
+    init_stepper_driver(&stepper_motor_driver, 2, 1, 3, &update_step_handler);
     set_rpm(&stepper_motor_driver, 150);
     button_init(BOOT_BUTTON_NUM);
     light_driver_init(active_config);
