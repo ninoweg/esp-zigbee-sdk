@@ -21,6 +21,7 @@ typedef struct {
     bool toggle_step;
     bool pos_dir;
     bool stop_task;
+    bool inverted;
     float delay_us;        // Delay between steps in microseconds
     TaskHandle_t task_handle; // Task handle for the movement task
 } stepper_driver;
