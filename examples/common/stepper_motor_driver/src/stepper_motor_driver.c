@@ -84,7 +84,7 @@ static void move_task(void *param) {
         }
 
         if (xQueueReceive(stepper_queue, &event, portMAX_DELAY)) {
-            // Check is goal is reached
+            // Check if goal was reached
             if ((!driver->pos_dir && driver->step_n <= driver->step_goal) ||
                 (driver->pos_dir && driver->step_n >= driver->step_goal)) {
                 driver->stop_task = true;
@@ -298,6 +298,7 @@ void stop_move_task(stepper_driver *driver) {
     if (gptimer != NULL) stop_timer();
 
     save_driver_params(driver);
+    (*func_ptr)(&driver->step_n, &driver->step_min, &driver->step_max);
 }
 
 void start_move_task(stepper_driver *driver, uint8_t percentage) {
@@ -340,8 +341,12 @@ bool set_direction(stepper_driver *driver) {
 }
 
 void step(stepper_driver *driver) {
+    static int8_t interval = 0;
     bool level = driver->toggle_step ? 1 : 0;
     gpio_set_level(driver->pin_step, level);
-    driver->step_n += driver->pos_dir ? 1 : -1;
     driver->toggle_step = !driver->toggle_step;
+
+    if (!(interval % 10))
+        driver->step_n += driver->pos_dir ? 1 : -1;
+    interval++;
 }
