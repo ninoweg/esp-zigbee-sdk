@@ -324,7 +324,17 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
     {
         if (message->info.cluster == ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING)
         {
-            ESP_LOGI(TAG, "Window covering cluster, attribute ID: 0x%x", message->attribute.id);
+            if (message->attribute.id == ESP_ZB_ZCL_ATTR_WINDOW_COVERING_MODE_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_8BITMAP) {
+                uint8_t mode = *(uint8_t *)message->attribute.data.value;
+                ESP_LOGI(TAG, "Set mode to %d.", mode);
+
+                esp_zb_zcl_set_attribute_val(HA_WINDOW_COVERING_ENDPOINT,
+                                ESP_ZB_ZCL_CLUSTER_ID_WINDOW_COVERING, 
+                                ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+                                ESP_ZB_ZCL_ATTR_WINDOW_COVERING_MODE_ID, 
+                                &mode, 
+                                false);
+            }
         }
     }
 
