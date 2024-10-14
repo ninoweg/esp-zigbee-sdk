@@ -8,3 +8,5 @@ This section provides a guide to the ESP Zigbee SDK, detailing common usage scen
 
    ncp
    aps
+   zcl_custom
+   zcl_groups

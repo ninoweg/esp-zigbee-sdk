@@ -1,5 +1,80 @@
 # Espressif Zigbee SDK Release Notes
 
+## 12-Oct-2024
+1.5.1 version release of ESP-ZIGBEE-SDK is based on esp-idf v5.1.4
+
+### Features
+- Added support for ZDO mgmt LQI request and response API
+- Added support for ZDO network address request and response API
+- Added support for Touchlink to set the extended PAN ID during commissioning
+- Added support for ZCL demand response and load control cluster
+- Added support for ZCL thermostat weekly schedule
+- Added support to send APS request by long address
+- Added API to enable/disable network security
+- Added API to retrieve the detailed version of the SDK at runtime
+- Added the esp32c5 support based on the esp-idf master
+
+### Bug Fixes
+- Fixed the compilation warning originating from `ESP_ZB_PACKED_STRUCT union` in `esp_zigbee_type.h`
+- Fixed the bug where an invalid attribute was added to the attribute list even when an error occurred
+- Fixed the issue where excess link status records were delayed and sent in the next period when the device had more than 26 neighbors
+- Fixed the crashing issue that occurred when the target device rebooted after touchlink commissioning had completed but no devices had joined
+
+### Changes
+- Updated esp-zboss-lib to v1.5.1
+- Updated esp-zigbee-lib to v1.5.1
+- Change the member of `esp_zb_apsde_data_req_t` from `uint16_t dst_short_addr;` to `esp_zb_addr_u dst_addr;`
+
+
+## 27-Aug-2024
+1.5.0 version release of ESP-ZIGBEE-SDK is based on esp-idf v5.1.4
+
+### Features
+- Added support for ZCL OTA upgrade optional header setting
+- Added support for ZCL OTA upgrade frame fragmentation
+- Added support for ZCL light sensor device
+- Added support for ZCL pH measurement cluster
+- Added support for ZCL electrical conductivity measurement cluster
+- Added support for ZCL gateway endpoint without a client cluster to handle report attribute commands
+- Added support for NWK maximum children setting
+
+### Bug Fixes
+- Fixed the issue with syncing ZCL diagnostic cluster attributes with the stack
+- Fixed the crashing issue caused by the RX queue being busy when enabling ZB_RADIO_SPINEL_UART
+- Fixed the unexpected delay in setpoint execution when using the thermostat cluster weekly schedule
+- Fixed the incorrect check for the minimum dead band of the thermostat cluster
+- Fixed the invalid endpoint ID in some core action messages
+
+### Changes
+- Updated esp-zboss-lib to v1.5.0
+- Updated esp-zigbee-lib to v1.5.0
+- Optimized ZCL OTA upgrade rate
+- Deprecated `esp_zb_main_loop_iteration()`; use `esp_zb_stack_main_loop()` instead
+- Unified the MACRO format for the default attributes of carbon dioxide, PM2.5, temperature, flow, and humidity measurement clusters
+
+### Breaking Changes
+- Renamed `esp_zb_window_covering_controller_cluster_create()` to `esp_zb_window_covering_controller_clusters_create()`
+- Renamed `esp_zb_on_off_switch_cfg_cluster_create()` to `esp_zb_on_off_switch_config_cluster_create()`
+- Changed the parameter of `esp_zb_ias_ace_cluster_create()` from `uint8_t` to `esp_zb_ias_ace_cluster_cfg_t *`
+- Changed the parameter of `esp_zb_touchlink_commissioning_cluster_create()` from `void` to `esp_zb_touchlink_commissioning_cfg_t *`
+- Changed the parameter of `esp_zb_diagnostics_cluster_create()` from `void` to `esp_zb_diagnostics_cluster_cfg_t *`
+- Changed the parameter of `esp_zb_price_cluster_create()` from `void` to `esp_zb_price_cluster_cfg_t *`
+
+
+## 19-Jul-2024
+1.4.1 version release of ESP-ZIGBEE-SDK is based on esp-idf v5.1.4
+
+### Features
+- Updated esp-zboss-lib to v1.4.1
+- Updated esp-zigbee-lib to v1.4.1
+- Supported NWK route record getting APIs
+- Supported ZCL OTA image query request and response APIs
+- Optimized APS maximum valid payload size for non-fragmented frames
+
+### Bug Fixes
+- Fixed touchlink assert when the touchlink initiator scans mismatched targets and is required to leave
+
+
 ## 04-Jul-2024
 1.4.0 version release of ESP-ZIGBEE-SDK is based on esp-idf v5.1.3
 

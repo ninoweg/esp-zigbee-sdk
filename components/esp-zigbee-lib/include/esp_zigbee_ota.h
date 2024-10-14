@@ -29,6 +29,19 @@ typedef struct esp_zb_ota_zcl_information_s {
 } esp_zb_ota_zcl_information_t;
 
 /**
+ * @brief The ZCL ota upgrade header optional structure
+ *
+ */
+typedef struct esp_zb_ota_file_optional_s {
+    uint8_t security_credential_version;        /*!< Indicate security credential version type such as SE1.0 or SE2.0 that the client
+                                                     is required to have, before it SHALL install the image. */
+    esp_zb_ieee_addr_t upgrade_file_destination;/*!< Indicates that this OTA file contains security credential/certificate data or
+                                                     other type of information that is specific to a particular device.*/
+    uint16_t minimum_hardware_version;          /*!< Represent the earliest hardware platform version this image SHOULD be used on. */
+    uint16_t maximum_hardware_version;          /*!< Represent the latest hardware platform version this image SHOULD be used on. */
+} esp_zb_ota_file_optional_t;
+
+/**
  * @brief The Zigbee ZCL OTA file header struct.
  *
  */
@@ -37,6 +50,8 @@ typedef struct esp_zb_ota_file_header_s {
     uint16_t image_type;                       /*!< Image type value to distinguish the products */
     uint32_t file_version;                     /*!< File version represents the release and build number of the image’s application and stack */
     uint32_t image_size;                       /*!< Total image size in bytes transferred from the server to the client */
+    uint16_t field_control;                    /*!< Indicate whether additional optional information */
+    esp_zb_ota_file_optional_t optional;       /*!< The optional header controlled by the filed contorl, @see esp_zb_ota_file_optional_t */
 } esp_zb_ota_file_header_t;
 
 /**
@@ -55,9 +70,9 @@ typedef esp_err_t (*esp_zb_ota_next_data_callback_t)(esp_zb_ota_zcl_information_
  *
  */
 typedef struct esp_zb_zcl_ota_upgrade_client_variable_s {
-    uint16_t timer_query;  /*!< The field indicates the time of querying OTA imagge for OTA upgrade client */
+    uint16_t timer_query;  /*!< The field indicates the time of querying OTA image for OTA upgrade client */
     uint16_t hw_version;   /*!< The hardware version */
-    uint8_t max_data_size; /*!< The maxinum size of OTA data */
+    uint8_t max_data_size; /*!< The maximum size of OTA data */
 } esp_zb_zcl_ota_upgrade_client_variable_t;
 
 /**
@@ -94,6 +109,37 @@ typedef struct esp_zb_ota_upgrade_server_notify_req_s {
  *      - ESP_ERR_INVALID_ARG: The input arguments are incorrect or invalid.
  */
 esp_err_t esp_zb_ota_upgrade_server_notify_req(esp_zb_ota_upgrade_server_notify_req_t *req);
+
+/**
+ * @brief Send the OTA upgrade client query image request
+ * 
+ * @param[in] server_addr The short address of the OTA upgrade server that the client expect to query 
+ * @param[in] server_ep   The endpoint identifier of the OTA upgrade server with OTA image
+ * @return
+ *      - ESP_OK: On success
+ *      - ESP_FAIL: On failed
+ */
+esp_err_t esp_zb_ota_upgrade_client_query_image_req(uint16_t server_ep, uint8_t server_addr);
+
+/**
+ * @brief Set the interval of query for OTA upgrade client 
+ * 
+ * @param[in] endpoint The endpoint identifier of OTA upgrade client resides
+ * @param[in] interval The interval in minute
+ * @return
+ *      - ESP_OK: On success
+ *      - ESP_FAIL: On failed
+ */
+esp_err_t esp_zb_ota_upgrade_client_query_interval_set(uint8_t endpoint, uint16_t interval);
+
+/**
+ * @brief Stop the image query of OTA upgrade client
+ *
+ * @return
+ *      - ESP_OK: On success
+ *      - ESP_FAIL: On failed
+ */
+esp_err_t esp_zb_ota_upgrade_client_query_image_stop(void);
 
 #ifdef __cplusplus
 }

@@ -18,6 +18,7 @@ extern "C" {
 
 typedef uint8_t esp_zb_64bit_addr_t[8];
 typedef esp_zb_64bit_addr_t esp_zb_ieee_addr_t;
+typedef esp_zb_64bit_addr_t esp_zb_ext_pan_id_t;
 typedef void (*esp_zb_zcl_cluster_init_t)(void);
 typedef void (*esp_zb_callback_t)(uint8_t param);
 typedef void (*esp_zb_user_callback_t)(void* param);
@@ -44,6 +45,33 @@ typedef union {
 #define ESP_ZB_CCM_KEY_SIZE                  16U
 #define ESP_ZB_ZCL_ATTR_SET_WITH_ATTR_ID(_set, _id) ((_set << 8) | (_id & 0xFF))
 #define ESP_ZB_ZCL_MAX_STRING_SIZE           0xFF
+
+#define ESP_ZB_ZCL_VALUE_FF             (-1)
+#define ESP_ZB_ZCL_VALUE_FE             (-2)
+#define ESP_ZB_ZCL_VALUE_NaN            (.0 / .0)
+
+#define ESP_ZB_ZCL_VALUE_U8_FF          ((uint8_t)ESP_ZB_ZCL_VALUE_FF)
+#define ESP_ZB_ZCL_VALUE_U16_FF         ((uint16_t)ESP_ZB_ZCL_VALUE_FF)
+#define ESP_ZB_ZCL_VALUE_U32_FF         ((uint32_t)ESP_ZB_ZCL_VALUE_FF)
+#define ESP_ZB_ZCL_VALUE_U64_FF         ((uint64_t)ESP_ZB_ZCL_VALUE_FF)
+
+#define ESP_ZB_ZCL_VALUE_S8_NaS         ((int8_t)(1ULL << 7))
+#define ESP_ZB_ZCL_VALUE_S16_NaS        ((int16_t)(1ULL << 15))
+#define ESP_ZB_ZCL_VALUE_S32_NaS        ((int32_t)(1ULL << 31))
+#define ESP_ZB_ZCL_VALUE_S64_NaS        ((int64_t)(1ULL << 63))
+
+#define ESP_ZB_ZCL_VALUE_U8_NONE        ESP_ZB_ZCL_VALUE_U8_FF
+#define ESP_ZB_ZCL_VALUE_U16_NONE       ESP_ZB_ZCL_VALUE_U16_FF
+#define ESP_ZB_ZCL_VALUE_U32_NONE       ESP_ZB_ZCL_VALUE_U32_FF
+#define ESP_ZB_ZCL_VALUE_U64_NONE       ESP_ZB_ZCL_VALUE_U64_FF
+
+#define ESP_ZB_ZCL_VALUE_S8_NONE        ESP_ZB_ZCL_VALUE_S8_NaS
+#define ESP_ZB_ZCL_VALUE_S16_NONE       ESP_ZB_ZCL_VALUE_S16_NaS
+#define ESP_ZB_ZCL_VALUE_S32_NONE       ESP_ZB_ZCL_VALUE_S32_NaS
+#define ESP_ZB_ZCL_VALUE_S64_NONE       ESP_ZB_ZCL_VALUE_S64_NaS
+
+#define ESP_ZB_ZCL_VALUE_SINGLE_NONE    ESP_ZB_ZCL_VALUE_NaN
+#define ESP_ZB_ZCL_VALUE_DOUBLE_NONE    ESP_ZB_ZCL_VALUE_NaN
 
 /**
  * @brief Type to represent source address of ZCL message
@@ -104,10 +132,10 @@ typedef struct esp_zb_attribute_list_s {
 typedef struct esp_zb_zcl_cluster_s {
     uint16_t cluster_id;                        /*!< ZCL 16-bit cluster id. Refer zcl_cluster_id */
     uint16_t attr_count;                        /*!< Attributes number supported by the cluster */
-    ESP_ZB_PACKED_STRUCT union {
+    union {
         esp_zb_zcl_attr_t *attr_desc_list;      /*!< Array of cluster attributes esp_zb_zcl_attr_t */
         esp_zb_attribute_list_t* attr_list;     /*!< List of cluster attributes esp_zb_attribute_list_t */
-    };
+    } ESP_ZB_PACKED_STRUCT;                     /*!< Attribute data model */
     uint8_t role_mask;                          /*!< Cluster role, refer to zcl_cluster_role */
     uint16_t manuf_code;                        /*!< Manufacturer code for cluster and its attributes */
     esp_zb_zcl_cluster_init_t cluster_init;     /*!< cluster init callback function */
@@ -290,10 +318,10 @@ typedef struct esp_zb_endpoint_s {
     uint8_t reserved_size;                      /*!< Unused parameter (reserved for future use) */
     void *reserved_ptr;                         /*!< Unused parameter (reserved for future use) */
     uint8_t cluster_count;                      /*!< Number of supported clusters */
-    ESP_ZB_PACKED_STRUCT union {
+    union {
         esp_zb_zcl_cluster_t *cluster_desc_list;    /*!< Supported clusters arranged in array */
         esp_zb_cluster_list_t *cluster_list;        /*!< Supported clusters arranged in list */
-    };
+    } ESP_ZB_PACKED_STRUCT;                         /*!< Cluster data model */
     esp_zb_af_simple_desc_1_1_t *simple_desc;   /*!< Simple descriptor */
 #if defined ZB_ENABLE_ZLL
     uint8_t group_id_count;                     /*!< Number of group id */
@@ -483,7 +511,15 @@ typedef struct esp_zb_ias_zone_cluster_cfg_s {
 } esp_zb_ias_zone_cluster_cfg_t;
 
 /**
- * @brief Zigbee default attribute for IAS_WD cluster.
+ * @brief Zigbee configurations for ias ace cluster.
+ *
+ */
+typedef struct esp_zb_ias_ace_cluster_cfg_s {
+    uint8_t zone_table_length; /**< Length of the zone table */
+} esp_zb_ias_ace_cluster_cfg_t;
+
+/**
+ * @brief Zigbee default attribute for ias wd cluster.
  *
  */
 typedef struct esp_zb_ias_wd_cluster_cfg_s {
@@ -654,6 +690,36 @@ typedef struct esp_zb_analog_value_cluster_cfg_s {
 } esp_zb_analog_value_cluster_cfg_t;
 
 /**
+ * @brief Zigbee default attribute for electrical conductivity measurement cluster.
+ *
+ */
+typedef struct esp_zb_ec_measurement_cluster_cfg_s {
+    uint16_t measured_value;        /*!< This attribute represents the electrical conductivity in EC or mS/m */
+    uint16_t min_measured_value;    /*!< This attribute indicates the minimum value of measuredvalue that is capable of being measured */
+    uint16_t max_measured_value;    /*!< This attribute indicates the maximum value of measuredvalue that is capable of being measured */
+} esp_zb_ec_measurement_cluster_cfg_t;
+
+/**
+ * @brief Zigbee default attribute for pH measurement cluster.
+ *
+ */
+typedef struct esp_zb_ph_measurement_cluster_cfg_s {
+    uint16_t measured_value;        /*!< This attribute represents the pH with no units */
+    uint16_t min_measured_value;    /*!< This attribute indicates the minimum value of measuredvalue that is capable of being measured */
+    uint16_t max_measured_value;    /*!< This attribute indicates the maximum value of measuredvalue that is capable of being measured */
+} esp_zb_ph_measurement_cluster_cfg_t;
+
+/**
+ * @brief Zigbee default attribute for wind speed measurement cluster.
+ *
+ */
+typedef struct esp_zb_wind_speed_measurement_cluster_cfg_s {
+    uint16_t measured_value;     /*!< This attribute represents the the Wind Speed in m/s */
+    uint16_t min_measured_value; /*!< This attribute indicates the minimum value of measuredvalue that is capable of being measured */
+    uint16_t max_measured_value; /*!< This attribute indicates the maximum value of measuredvalue that is capable of being measured */
+} esp_zb_wind_speed_measurement_cluster_cfg_t;
+
+/**
  * @brief Zigbee standard mandatory attribute for carbon dioxide measurement cluster
  *
  */
@@ -699,6 +765,14 @@ typedef struct esp_zb_metering_cluster_cfg_s {
 } esp_zb_metering_cluster_cfg_t;
 
 /**
+ * @brief Zigbee standard mandatory attribute for diagnostics cluster
+ *
+ */
+typedef struct esp_zb_diagnostics_cluster_cfg_s {
+    /* no member */
+} esp_zb_diagnostics_cluster_cfg_t;
+
+/**
  * @brief Zigbee standard mandatory attribute for meter identification cluster
  *
  */
@@ -710,6 +784,32 @@ typedef struct esp_zb_meter_identification_cluster_cfg_s {
     esp_zb_uint24_t available_power;            /*!< This attribute represents the InstantaneousDemand that can be distributed to the customer without any risk of overload. */
     esp_zb_uint24_t power_threshold;            /*!< This attribute represents a threshold of InstantaneousDemand distributed to the customer that will lead to an imminent risk of overload. */
 } esp_zb_meter_identification_cluster_cfg_t;
+
+/**
+ * @brief Zigbee standard mandatory attribute for price cluster
+ *
+ */
+typedef struct esp_zb_price_cluster_cfg_s {
+    /* no member */
+} esp_zb_price_cluster_cfg_t;
+
+/**
+ * @brief Zigbee standard mandatory attribute for demand response and load control cluster
+ */
+typedef struct esp_zb_drlc_cluster_cfg_s {
+    uint8_t utility_enrollment_group;       /*!< This attribute provides a method for utilities to assign devices to groups. */
+    uint8_t start_randomization_minutes;    /*!< This attribute represents the maximum number of minutes to be used when randomizing the start of an event. */
+    uint8_t duration_randomization_minutes; /*!< This attribute represents the maximum number of minutes to be used when randomizing the duration of an event. */
+    uint16_t device_class_value;            /*!< This attribute identifies which bits the device will match in the Device Class fields. */
+} esp_zb_drlc_cluster_cfg_t;
+
+/**
+ * @brief Zigbee standard mandatory attribute for toucklink commissioning cluster
+ *
+ */
+typedef struct esp_zb_touchlink_commissioning_cfg_s {
+    /* no member */
+} esp_zb_touchlink_commissioning_cfg_t;
 
 /****************** standard device config *********************/
 /**
@@ -862,6 +962,15 @@ typedef struct esp_zb_window_covering_controller_cfg_s {
     esp_zb_identify_cluster_cfg_t identify_cfg;         /*!< Identify cluster configuration, @ref esp_zb_identify_cluster_cfg_s */
 } esp_zb_window_covering_controller_cfg_t;
 
+/**
+ * @brief Zigbee HA light sensor configuration.
+ *
+ */
+typedef struct esp_zb_light_sensor_cfg_s {
+    esp_zb_basic_cluster_cfg_t basic_cfg;                   /*!< Basic cluster configuration, @ref esp_zb_basic_cluster_cfg_s */
+    esp_zb_identify_cluster_cfg_t identify_cfg;             /*!< Identify cluster configuration, @ref esp_zb_identify_cluster_cfg_s */
+    esp_zb_illuminance_meas_cluster_cfg_t illuminance_cfg;  /*!< Illuminance cluster configuration @ref esp_zb_illuminance_meas_cluster_cfg_s */
+} esp_zb_light_sensor_cfg_t;
 
 #ifdef __cplusplus
 }

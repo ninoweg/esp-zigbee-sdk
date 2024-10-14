@@ -24,6 +24,8 @@ typedef enum {
 #define ESP_ZB_NWK_INFO_ITERATOR_INIT 0         /*!< Initializer for esp_zb_neighbor_info_iterator_t. */
 #define ESP_ZB_NWK_INFO_ITERATOR_EOT  0xFFFF    /*!< Indicate the iterator reach the End of Table. */
 
+#define ESP_ZB_NWK_MAX_SOURCE_ROUTE 5
+
 /**
  * @brief Iterator used to iterate through the tables of network informations.
  *
@@ -38,7 +40,14 @@ typedef enum {
     ESP_ZB_NWK_RELATIONSHIP_PARENT                = 0U, /*!< The peer device is the parent of current device. */
     ESP_ZB_NWK_RELATIONSHIP_CHILD                 = 1U, /*!< The peer device is the child of current device. */
     ESP_ZB_NWK_RELATIONSHIP_SIBLING               = 2U, /*!< The peer device is the sibling of current device. */
-    ESP_ZB_NWK_RELATIONSHIP_OTHERS                = 3U, /*!< The relationship is none of above. */
+    ESP_ZB_NWK_RELATIONSHIP_NONE_OF_THE_ABOVE     = 3U, /*!< The relationship is none of above, means that the peer device is
+                                                             currently unknown, and its relationship with the network is in
+                                                             the process of being established. */
+    ESP_ZB_NWK_RELATIONSHIP_PREVIOUS_CHILD        = 4U, /*!< The peer device is the previous child of current device, meaning it
+                                                             has been confirmed to have left the network */
+    ESP_ZB_NWK_RELATIONSHIP_UNAUTHENTICATED_CHILD = 5U, /*!< The peer device is the unauthenticated child of current device,
+                                                             meaning it is in the process of joining the network but has not yet
+                                                             been authenticated. */
 } esp_zb_nwk_relationship_t;
 
 /**
@@ -92,6 +101,18 @@ typedef struct esp_zb_nwk_route_info_s {
 } esp_zb_nwk_route_info_t;
 
 /**
+ * @brief Information of network route record table entry
+ *
+ */
+typedef struct esp_zb_nwk_route_record_info_s {
+    uint16_t dest_address;                      /*!< Destination network address of this route record. */
+    uint8_t expiry;                             /*!< Expiration time. */
+    uint8_t relay_count;                        /*!< The count of relay nodes from concentrator to the destination. */
+    uint16_t path[ESP_ZB_NWK_MAX_SOURCE_ROUTE]; /*!< The set of network addresses that represent the route
+                                                 *   in order from the concentrator to the destination.*/
+} esp_zb_nwk_route_record_info_t;
+
+/**
  * @brief Set the network update id
  *
  * @param[in] id The network update id is expected to be set
@@ -139,6 +160,30 @@ void esp_zb_set_rx_on_when_idle(bool rx_on);
  * @return The state of RX-ON-When-Idle
  */
 bool esp_zb_get_rx_on_when_idle(void);
+
+/**
+ * @brief Set the maximum number of children allowed.
+ *
+ * The function only takes effect on ZC/ZR.
+ *
+ * @param[in] max_children Maximum number of children.
+ *
+ * @return
+ *      - ESP_OK: On success
+ *      - ESP_ERR_NOT_SUPPORTED: for ZED.
+ *
+ */
+esp_err_t esp_zb_nwk_set_max_children(uint8_t max_children);
+
+/**
+ * @brief Get the maximum number of children allowed.
+ *
+ * @return
+ *      - Maximum number of children, for ZC/ZR
+ *      - 0, for ZED
+ *
+ */
+uint8_t esp_zb_nwk_get_max_children(void);
 
 /**
  * @brief   Set the Zigbee device long address.
@@ -258,6 +303,7 @@ esp_zb_nwk_device_type_t esp_zb_get_network_device_role(void);
  *
  * @return - ESP_OK on success
  *         - ESP_ERR_NOT_FOUND on finish iteration
+ *         - ESP_ERR_INVALID_ARG if arguements are invalid
  *
  */
 esp_err_t esp_zb_nwk_get_next_neighbor(esp_zb_nwk_info_iterator_t *iterator, esp_zb_nwk_neighbor_info_t *nbr_info);
@@ -270,9 +316,23 @@ esp_err_t esp_zb_nwk_get_next_neighbor(esp_zb_nwk_info_iterator_t *iterator, esp
  *
  * @return - ESP_OK on success
  *         - ESP_ERR_NOT_FOUND on finish iteration
+ *         - ESP_ERR_INVALID_ARG if arguements are invalid
  *
  */
 esp_err_t esp_zb_nwk_get_next_route(esp_zb_nwk_info_iterator_t *iterator, esp_zb_nwk_route_info_t *route_info);
+
+/**
+ * @brief  Iterate through the route record table (a.k.a source route table) and get the information in the entry
+ *
+ * @param[in] iterator iterator used to iterate through routing table, refer to esp_zb_nwk_info_iterator_t
+ * @param[out] route_record_info next route record entry information, @ref esp_zb_nwk_route_record_info_s
+ *
+ * @return - ESP_OK on success
+ *         - ESP_ERR_NOT_FOUND on finish iteration
+ *         - ESP_ERR_INVALID_ARG if arguements are invalid
+ *
+ */
+esp_err_t esp_zb_nwk_get_next_route_record(esp_zb_nwk_info_iterator_t *iterator, esp_zb_nwk_route_record_info_t *route_record_info);
 
 #ifdef __cplusplus
 }

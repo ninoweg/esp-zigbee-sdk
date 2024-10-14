@@ -149,6 +149,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                 ESP_LOGI(TAG, "Start network formation");
                 esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_FORMATION);
             } else {
+                esp_zb_bdb_open_network(180);
                 ESP_LOGI(TAG, "Device rebooted");
             }
         } else {
@@ -216,7 +217,7 @@ static void esp_zb_task(void *pvParameters)
     esp_zb_device_register(esp_zb_color_dimm_switch_ep);
     esp_zb_set_primary_network_channel_set(ESP_ZB_PRIMARY_CHANNEL_MASK);
     ESP_ERROR_CHECK(esp_zb_start(false));
-    esp_zb_main_loop_iteration();
+    esp_zb_stack_main_loop();
 }
 
 void app_main(void)
