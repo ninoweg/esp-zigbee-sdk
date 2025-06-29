@@ -10,6 +10,8 @@
 
 #include "../cli_util.h"
 
+#include "zb_custom_clusters/custom_common.h"
+
 typedef esp_err_t (*register_fn_t)(esp_zb_cluster_list_t *cluster_list, esp_zb_attribute_list_t *attr_list, uint8_t role_mask);
 typedef esp_zb_attribute_list_t* (*create_fn_t)(void *);
 typedef esp_err_t (*add_attr_fn_t)(esp_zb_attribute_list_t *attr_list, uint16_t attr_id, void *value_p);
@@ -102,7 +104,7 @@ const static esp_zcl_cluster_fn_t s_cluster_fn_table[] = {
     CLUSTER_NON_SUPPORT_FN_ENTRY(pump_config_control, ESP_ZB_ZCL_CLUSTER_ID_PUMP_CONFIG_CONTROL),
     CLUSTER_FN_ENTRY(thermostat, ESP_ZB_ZCL_CLUSTER_ID_THERMOSTAT),
     CLUSTER_FN_ENTRY(fan_control, ESP_ZB_ZCL_CLUSTER_ID_FAN_CONTROL),
-    CLUSTER_NON_SUPPORT_FN_ENTRY(dehumid_control, ESP_ZB_ZCL_CLUSTER_ID_DEHUMID_CONTROL),
+    CLUSTER_FN_ENTRY(dehumidification_control, ESP_ZB_ZCL_CLUSTER_ID_DEHUMIDIFICATION_CONTROL),
     CLUSTER_FN_ENTRY(thermostat_ui_config, ESP_ZB_ZCL_CLUSTER_ID_THERMOSTAT_UI_CONFIG),
     CLUSTER_FN_ENTRY(color_control, ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL),
     CLUSTER_NON_SUPPORT_FN_ENTRY(ballast_config, ESP_ZB_ZCL_CLUSTER_ID_BALLAST_CONFIG),
@@ -126,6 +128,7 @@ const static esp_zcl_cluster_fn_t s_cluster_fn_table[] = {
     CLUSTER_FN_ENTRY(electrical_meas, ESP_ZB_ZCL_CLUSTER_ID_ELECTRICAL_MEASUREMENT),
     CLUSTER_FN_ENTRY(diagnostics, ESP_ZB_ZCL_CLUSTER_ID_DIAGNOSTICS),
     CLUSTER_NO_ATTR_FN_ENTRY(touchlink_commissioning, 0x1000),
+    CLUSTER_FN_ENTRY(ping_iperf_test, ESP_ZB_ZCL_CLUSTER_ID_PING_IPERF_TEST),
 };
 
 static const esp_zcl_cluster_fn_t* cluster_fn_table_get_by_idx(uint16_t idx)
@@ -220,7 +223,7 @@ esp_err_t esp_zb_cluster_register(esp_zb_cluster_list_t *cluster_list, esp_zb_at
     if (ent != NULL && ent->register_fn != NULL) {
         ret = ent->register_fn(cluster_list, attr_list, role_mask);
     } else {
-        ret = ESP_ERR_NOT_SUPPORTED;
+        ret = esp_zb_cluster_list_add_custom_cluster(cluster_list, attr_list, role_mask);
     }
     return ret;
 }

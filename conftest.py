@@ -31,11 +31,65 @@ from _pytest.terminal import TerminalReporter
 from pytest_embedded.plugin import multi_dut_argument, multi_dut_fixture
 from pytest_embedded.utils import find_by_suffix
 import time
-import glob
 import subprocess
+import copy
 
 DEFAULT_SDKCONFIG = 'default'
 
+ESPPORT1 = os.getenv('ESPPORT1')
+ESPPORT2 = os.getenv('ESPPORT2')
+ESPPORT3 = os.getenv('ESPPORT3')
+ESPPORT4 = os.getenv('ESPPORT4')
+ESPPORT5 = os.getenv('ESPPORT5')
+ESPPORT6 = os.getenv('ESPPORT6')
+ESPPORT7 = os.getenv('ESPPORT7')
+
+PORT_MAPPING = {'esp32s3': [ESPPORT3],
+                'esp32h2': [ESPPORT1, ESPPORT2],
+                'esp32c6': [ESPPORT4, ESPPORT5],
+                'esp32c5': [ESPPORT6, ESPPORT7],}
+
+def pytest_generate_tests(metafunc):
+    logging.info(f"Generating test for: {metafunc.function.__name__}")
+    port_mapping = copy.deepcopy(PORT_MAPPING)
+
+    target_option = metafunc.config.getoption('target')
+    all_target_marks = {m.name for m in metafunc.definition.own_markers}
+    if target_option not in all_target_marks:
+        return
+
+    targets = []
+    # target string e.g. 'esp32h2|esp32h2'
+    for mark in metafunc.definition.iter_markers(name='parametrize'):
+        if not mark.args:
+            continue
+        arg_names = [name.strip() for name in mark.args[0].split(',')]
+        param_values = mark.args[1][0]
+        if 'target' not in arg_names:
+            count_index = arg_names.index('count')
+            count_val = param_values[count_index]
+            targets = [target_option] * count_val
+        else:
+            target_index = arg_names.index('target')
+            target_string = param_values[target_index]
+            targets = target_string.split('|')
+    if not targets:
+        raise ValueError(f'No targets get from marks')
+
+    ports = []
+    for t in targets:
+        if t not in port_mapping:
+            raise ValueError(f'Target {t} not found in PORT_MAPPING')
+        if not port_mapping[t]:
+            raise ValueError(f'No available ports left for target {t}')
+        port = port_mapping[t].pop(0)
+        if not port:
+            raise ValueError(f'Environment variable for target {t} port is not set')
+        ports.append(port)
+
+    port_str = '|'.join(ports)
+    logging.info(f"port: {port_str}")
+    metafunc.parametrize('port', [port_str], indirect=True)
 
 ##################
 # Help Functions #
@@ -135,7 +189,7 @@ def junit_properties(
 
 
 @pytest.fixture()
-def teardown_fixture(serial_ports, dut):
+def teardown_fixture(dut):
     """
     A pytest fixture responsible for erasing the flash memory of a list of test devices post-testing.
     Yields:
@@ -145,26 +199,18 @@ def teardown_fixture(serial_ports, dut):
     """
     yield
     # after test, close dut monitor, and do erase flash process
+    serial_port_list = []
     for device in dut:
-        device.serial.stop_redirect_thread()
+        device.serial.close()
+        serial_port_list.append(device.serial.port)
     proc = None
-    for serial_port in serial_ports:
-        print(f'erase flash on serial_port: {serial_port}')
+    for serial_port in serial_port_list:
+        logging.info(f'erase flash on serial_port: {serial_port}')
         proc = subprocess.Popen(f'python -m esptool --port {serial_port} erase_flash', shell=True)
         proc.wait()
     if proc is not None:
         proc.kill()
     time.sleep(1)
-
-
-@pytest.fixture()
-def serial_ports():
-    usb_ports = glob.glob('/dev/ttyUSB*')
-    acm_ports = glob.glob('/dev/ttyACM*')
-    serial_port_list = usb_ports + acm_ports
-    print(f'serial_port_list:{serial_port_list}')
-    return serial_port_list
-
 
 ##################
 # Hook functions #

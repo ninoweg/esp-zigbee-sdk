@@ -13,18 +13,6 @@ extern "C" {
 
 #include "esp_zigbee_type.h"
 
-/**
- * @brief BDB commissioning mode mask bits
- *
- */
-typedef enum esp_zb_bdb_commissioning_mode_mask_s {
-    ESP_ZB_BDB_TOUCHLINK_COMMISSIONING = 0x01,  /*!< if bit is set, attempt Touchlink commissioning */
-    ESP_ZB_BDB_NETWORK_STEERING        = 0x02,  /*!< if bit is set, attempt network steering */
-    ESP_ZB_BDB_NETWORK_FORMATION       = 0x04,  /*!< if bit is set, attempt to form a network, according to device type */
-    ESP_ZB_BDB_FINDING_N_BINDING       = 0x08,  /*!< if bit is set, attempt finding and binding */
-    ESP_ZB_BDB_TOUCHLINK_TARGET        = 0x40,  /*!< if bit is set, attempt become touchlink target */
-} esp_zb_bdb_commissioning_mode_mask_t;
-
 /** @brief Enumeration of touchlink actions, that should be approved by end user application.
  *
  */
@@ -33,6 +21,14 @@ typedef enum esp_zb_touchlink_action_s {
     ESP_ZB_TOUCHLINK_ACTION_JOIN_ROUTER,
     ESP_ZB_TOUCHLINK_ACTION_JOIN_ED
 } esp_zb_touchlink_action_t;
+
+/** @brief Enumeration of touchlink key bitmask
+ *
+ */
+typedef enum esp_zb_touchlink_key_bitmask_s {
+  ESP_ZB_TOUCHLINK_MASTER_KEY           = (1U << 4),  /*!< Master key is a secret shared by all certified touchlink devices */
+  ESP_ZB_TOUCHLINK_CERTIFICATION_KEY    = (1U << 15), /*!< Certification key is is used to allow testing of the security mechanisms */
+} esp_zb_touchlink_key_bitmask_t;
 
 /** Touchlink action callback
  *
@@ -85,6 +81,18 @@ void esp_zb_touchlink_clear_factory_new(void);
  *
  */
 void esp_zb_zdo_touchlink_target_set_timeout(uint32_t timeout);
+
+/**
+ * @brief Set the key bitmask for Touchlink commissioning
+ *
+ * Configures the key bitmask used for Touchlink commissioning. The network key will be encrypted
+ * using one of the key types specified in the bitmask. Higher priority is given to keys with higher
+ * bits. By default, the certification and master keys are included in the bitmask.
+ *
+ * @param[in] bitmask The bitmask to be applied for Touchlink commissioning
+ *
+ */
+void esp_zb_zdo_touchlink_set_key_bitmask(esp_zb_touchlink_key_bitmask_t bitmask);
 
 /**
  * @brief Set the master key for Touchlink

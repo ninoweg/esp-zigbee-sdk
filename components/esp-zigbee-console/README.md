@@ -42,22 +42,31 @@ For specific type of argument, correct format should be provided so that it can 
 ## ESP-Zigbee-Console Command List
 
 - [`address`](#address): Get/Set the (extended) address of the node.
+- [`aps`](#aps): Zigbee Application Support management.
 - [`bdb_comm`](#bdb_comm): Perform BDB Commissioning.
 - [`channel`](#channel): Get/Set 802.15.4 channels for network
-- [`dm`](#dm): ZigBee Cluster Library data model management.
+- [`dm`](#dm): Zigbee Cluster Library data model management.
 - [`factoryreset`](#factoryreset): Reset the device to factory new.
 - [`ic`](#ic): Install code configuration.
+- [`iperf`](#iperf): Iperf over Zigbee.
+- [`linkkey`](#linkkey): Link Key Configuration.
+- [`macfilter`](#macfilter): Zigbee stack mac filter management.
+- [`neighbor`](#neighbor): Neighbor information.
 - [`network`](#network): Network configuration.
 - [`panid`](#panid): Get/Set the (extended) PAN ID of the node.
+- [`ping`](#ping): Ping over Zigbee.
 - [`radio`](#radio): Enable/Disable the radio.
 - [`reboot`](#reboot): Reboot the device.
 - [`role`](#role): Get/Set the Zigbee role of a device.
+- [`route`](#route): Route information.
 - [`start`](#start): Start Zigbee stack.
 - [`tl`](#tl): TouchLink configuration.
-- [`zcl`](#zcl): ZigBee Cluster Library management.
+- [`trace`](#trace): Configure Zigbee stack trace log.
+- [`zcl`](#zcl): Zigbee Cluster Library management.
 - [`zdo`](#zdo): Zigbee Device Object management.
-- [`zgp`](#zgp): ZigBee Green Power Profile management.
-- [`zha`](#zha): ZigBee Home Automation Profile.
+- [`zgp`](#zgp): Zigbee Green Power Profile management.
+- [`zha`](#zha): Zigbee Home Automation Profile.
+
 
 ## ESP-Zigbee-Console Command Details
 
@@ -84,6 +93,43 @@ Set the extended address of the Zigbee device node.
 
 ```bash
 esp> address -x 0x0123456789abcdef
+```
+
+
+### aps
+Zigbee Application Support management
+
+#### `aps send_raw [options]`
+options:
+- `-d <addr:ADDR>`: Destination address of the command.
+- `--dst-ep <u8:EID>`: Destination endpoint of the command.
+- `-e <u8:EID>`: Source endpoint of the command.
+- `--profile=<u16:PID>`: Profile id of the command.
+- `-c <u16:CID>`: Cluster id of the command.
+
+Destination address mode selection: same as [`zcl`](#zcl)
+
+```bash
+esp> aps send_raw -e 2 --dst-ep 3 -c 0x0006 -d 0x33d2 -p 0x11223344
+Send aps data frame successful
+```
+
+#### `aps dump <open|close>`
+Dump APS traffic
+
+Local device start to dump aps traffic.
+```bash
+esp> aps dump open
+```
+Remote device send aps data frame.
+```bash
+esp> aps send_raw -d 0x90eb -e 2 --dst-ep 2 -c 0x0006 -p 0x1122
+Send aps data frame successful
+```
+Local device dump aps data frame.
+```bash
+Received aps data frame
+I (680692) : 0x40817760   11 22                                             |."|
 ```
 
 
@@ -185,7 +231,7 @@ esp> channel -m 0x06ef0000
 
 
 ### dm
-ZigBee Cluster Library data model management.
+Zigbee Cluster Library data model management.
 
 The sub-commands operate on the `ep_list` registered/created by `esp_zb_console_manage_ep_list()`:
 
@@ -328,6 +374,19 @@ Reboot the device
 ### ic
 Install code configuration.
 
+#### `ic policy <int:IC policy>`
+Set install code policy.
+
+Supported policy values are:
+- `0`: Not support install code.
+- `1`: Support install code.
+- `2`: Require install code.
+
+Set the TC to require use install code by joining devices
+```bash
+esp> ic policy 2
+```
+
 #### `ic add <eui64:EUI64> <IC>`
 Add install code for a remote device.
 
@@ -359,6 +418,130 @@ Get the install code configured on local device.
 esp> ic get
 I (837619) : 0x4080fa50   83 fe d3 40 7a 93 97 23  a5 c6 39 b2 69 16 d5 05  |...@z..#..9.i...|
 I (837619) : 0x4080fa60   c3 b5                                             |..|
+```
+
+
+### iperf
+Iperf over Zigbee
+
+> **Prerequisites:** A custom ZHA custom_test_tool device should be registered.
+
+```bash
+esp> zha add 2 custom_test_tool
+esp> dm register
+```
+
+#### `iperf start -d <addr:ADDR> --dst-ep=<u8:EID> -e <u8:EID> -t <u16:TIME> [-i <u16:TIME>] -l <u16:DATA>`
+Do iperf with remote device
+
+- `-d, --dst-addr=<addr:ADDR>`: Destination address.
+- `--dst-ep=<u8:EID>`: Destination endpoint id.
+- `-e, --src-ep=<u8:EID>`: Source endpoint id.
+- `-t, --iperf-time=<u16:TIME>`: Iperf duration time in second.
+- `-i, --iperf-interval=<u16:TIME>`: Iperf interval in millisecond, default: 20.
+- `-l, --payload-len=<u16:DATA>`: The payload length in byte of the iperf command.
+
+```bash
+esp> iperf start -e 2 --dst-ep 3 -d 0x2cc4 -t 3 -i 50 -l 100
+I (379614) ping_iperf_test: throughput: 10.000 kbps, count: 1
+```
+
+#### `iperf result [-r <sc:C|S>] -e <u8:EID>`
+Dump iperf throughput on current node.
+
+- `-r, --role=<sc:C|S>`: The role of the iperf cluster, default: S
+- `-e, --src-ep=<u8:EID>`: Source endpoint id
+
+```bash
+esp> iperf result -r C -e 2
+iperf test throughput: 13 kbps
+```
+
+
+### linkkey
+Link Key Configuration.
+
+#### `linkkey add [-t <type:D|C>] [<hex:KEY128>]`
+Add an additional global link key.
+
+The optional `-t` (`--type`) argument determines the type of link
+key to set: Either `d` (distributed), or `c` (centralized).
+
+Default is `c`.
+
+Note: the implementation calls `esp_zb_secur_multi_TC_standard_preconfigure_key_add` (for centralized)
+or `esp_zb_secur_multi_standard_distributed_key_add` (for distributed).
+
+```bash
+linkkey add 0x0123456789abcdeffedcba9876543210
+```
+
+#### `linkkey remove [-t <type:D|C>] [<hex:KEY128>]`
+Remove an additional global link key.
+
+The optional `-t` (`--type`) argument determines the type of link
+key to set: Either `d` (distributed), or `c` (centralized).
+
+Default is `c`.
+
+Note: the implementation calls `esp_zb_secur_multi_TC_standard_preconfigure_key_remove` (for centralized)
+or `esp_zb_secur_multi_standard_distributed_key_remove` (for distributed).
+
+```bash
+linkkey add 0x0123456789abcdeffedcba9876543210
+```
+
+#### `linkkey set [-t <type:D|C>] [<hex:KEY128>]`
+Set the default global link key.
+
+The optional `-t` (`--type`) argument determines the type of trust center
+key to set: Either `d` (distributed), or `c` (centralized).
+
+Default is `c`.
+
+Note: the implementation calls `esp_zb_secur_TC_standard_preconfigure_key_set` (for centralized)
+or `esp_zb_secur_TC_standard_distributed_key_set` (for distributed).
+
+```bash
+linkkey set 0x0123456789abcdeffedcba9876543210
+```
+
+
+### macfilter
+Zigbee stack mac filter management.
+
+#### `macfilter add [-i] <addr:ADDR>`
+Add device ieee addr for filter in.
+
+```bash
+esp> macfilter add 0x0123456789abcdef
+```
+
+Use `-i` to filter out short address:
+```bash
+esp> macfilter add -i 0x1234
+```
+
+#### `macfilter clear`
+Clear all entries in the filter
+
+```bash
+esp> macfilter clear
+```
+
+
+### neighbor
+Neighbor information.
+
+#### `neighbor table`
+Dump the neighbor table on current node.
+
+```bash
+esp> neighbor table
+|Index| Age |NwkAddr | MacAddr            |Type |Rel|Depth| LQI | Cost |
++-----+-----+--------+--------------------+-----+---+-----+-----+------+
+|   1 |   1 | 0x83a6 | 0x4831b7fffec182eb |  ZR | S |   1 | 255 |  o:1 |
+|   2 |   1 | 0xcb75 | 0x4831b7fffec18311 |  ZR | S |   2 | 255 |  o:7 |
 ```
 
 
@@ -401,7 +584,7 @@ I (77200) : 0x4084f6f4   83 38 66 7a d8 b6 b4 b4  63 17 12 39 0f 83 f8 6a  |.8fz
 #### `network legacy`
 Enable/Disable legacy device support.
 
-> Note: Getting the current state has not been supported yet.
+> **Note:** Getting the current state has not been supported yet.
 
 ```bash
 esp> network legacy enable
@@ -504,6 +687,32 @@ esp> panid -x 0x0123456789abcdef
 ```
 
 
+### ping
+Ping over Zigbee
+
+> **Prerequisites:** A custom ZHA custom_test_tool device should be registered.
+
+```bash
+esp> zha add 2 custom_test_tool
+esp> dm register
+```
+
+#### `ping -d <addr:ADDR> --dst-ep=<u8:EID> -e <u8:EID> -l <u16:DATA>`
+- `-d, --dst-addr=<addr:ADDR>`: Destination address.
+- `--dst-ep=<u8:EID>`: Destination endpoint id.
+- `-e, --src-ep=<u8:EID>`: Source endpoint id.
+- `-l, --payload-len=<u16:DATA>`: Payload length in byte of the ping command.
+- `-t, --timeout=<u32:DATA>`: Time to wait for response in millisecond, default: 2000
+
+```bash
+esp> ping -e 2 --dst-ep 2 -d 0x5da9 -l 10
+I (109594) ping_iperf_test: Request to ping address: 0x5da9
+I (109654) ping_iperf_test: Ping request success
+I (109664) esp-zigbee-console: Receive Zigbee action(0x1040) callback
+I (109664) ping_iperf_test: RECEIVE PING RESPONSE from 0x5da9 with 10 bytes, rtt: 69 ms
+```
+
+
 ### reboot
 Reboot the device immediately.
 
@@ -535,6 +744,20 @@ esp> role zc
 esp> role
 zc
 ```
+
+
+### route
+Route information.
+
+#### `neighbor table`
+Dump the route table in current node.
+
+```bash
+|Index|DestAddr|NextHop |Expiry| State  |Flags |
++-----+--------+--------+------+--------+------+
+|   1 | 0x3095 | 0x83a6 |   59 | Active | 0x00 |
+```
+
 
 ### start
 Start Zigbee stack.
@@ -575,10 +798,42 @@ Set touchlink master key.
 ```bash
 tl key 0x0123456789abcdeffedcba9876543210
 ```
+#### `tl keymask <u16:mask>`
+Set touchlink key mask.
+
+Enable master key
+```bash
+tl keymask 0x10
+```
+
+Enable cetification key
+```bash
+tl keymask 0x8000
+```
+
+Enable both master key and cetification key
+```bash
+tl keymask 0x8010
+```
+
+### trace
+Configure Zigbee stack trace log.
+
+> **NOTE:** The command only supported when `ZB_DEBUG_MODE` is enabled.
+
+#### `trace <LEVEL> <MASK>`
+Configure the minimum level and modules of the trace log to output.
+
+Please refer to [esp_zigbee_trace.h](../esp-zigbee-lib/include/esp_zigbee_trace.h) for available values.
+
+To enable `WARN` level for `MAC` and `NWK` layers:
+```bash
+esp> trace 1 0x000C
+```
 
 
 ### zcl
-ZigBee Cluster Library management.
+Zigbee Cluster Library management.
 
 Common options:
 - `-d <addr:ADDR>`: Destination address of the command.
@@ -654,6 +909,9 @@ Use `-p <hex:DATA>` to specify the raw payload data of the command.
 
 Use `-n` to perform a dry run. Do not send the command, just dump the content.
 
+Optionally, use `--manuf <u16:CODE>` to send the command as manufacturer-specific
+extension, with given manufacturer code.
+
 ```bash
 esp> zcl send_raw -n -d 0x0000 --dst-ep 1 -e 2 -c 2 --cmd 0x00 -p 0x1234567890
 Send request:
@@ -664,6 +922,10 @@ I (13859) : 0x40815970   12 34 56 78 90                                    |.4Vx
 
 ```bash
 esp> zcl send_raw -d 0xb55c --dst-ep 1 -e 2 -c 6 --cmd 0x01
+```
+
+```bash
+esp> zcl send_raw -d 0x4db8 --dst-ep 1 -e 10 --profile 0x104 -c 0x0 --cmd 0xaa -p 0x1234 --manuf 0x131B
 ```
 
 ### zdo
@@ -679,6 +941,12 @@ Supported information types:
   esp> zdo request node_desc -d 0x3ed5
   node_desc request to [addr:0x3ed5] status: 0
   I (1335839) : 0x40815b34   01 40 8e 34 12 6c 4d 06  00 2c 4d 06 00           |.@.4.lM..,M..|
+  ```
+- `power_desc`: Get the power descriptor of device node
+  ```bash
+  esp> zdo request power_desc -d 0x3ed5
+  power_desc request to [addr:0x3ed5] status: 0
+  I (59133) : 0x4081b2ac   00 00                                             |..|
   ```
 - `active_ep`: Get the list of endpoints on a device node with simple descriptors.
   ```bash
@@ -814,11 +1082,11 @@ Use `-r` to request the node rejoin after leaving the network.
 
 
 ### zgp
-ZigBee Green Power Profile management.
+Zigbee Green Power Profile management.
 
 
 ### zha
-ZigBee Home Automation Profile.
+Zigbee Home Automation Profile.
 
 #### `zha add <u8:EID> <device_name>`
 Add device by device type name.

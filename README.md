@@ -22,14 +22,13 @@ Note：these two library components are hosted by [ESP Registry](https://compone
 
 Some of the reference hardware used in development examples are listed below:
 
-ESP32-H2-DevKitM-1
-* https://docs.espressif.com/projects/espressif-esp-dev-kits/en/latest/esp32h2/esp32-h2-devkitm-1/user_guide.html
+* [ESP32-H2-DevKitM-1](https://docs.espressif.com/projects/espressif-esp-dev-kits/en/latest/esp32h2/esp32-h2-devkitm-1/user_guide.html)
 
-ESP32-C6-DevKitM-1
-* https://docs.espressif.com/projects/espressif-esp-dev-kits/en/latest/esp32c6/esp32-c6-devkitm-1/user_guide.html
+* [ESP32-C6-DevKitM-1](https://docs.espressif.com/projects/espressif-esp-dev-kits/en/latest/esp32c6/esp32-c6-devkitm-1/user_guide.html)
 
-Espressif Thread Border Router / Zigbee Gateway
-* https://docs.espressif.com/projects/esp-thread-br/en/latest/hardware_platforms.html
+* [ESP32-C5-DevKitM-1](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c5/esp32-c5-devkitc-1/user_guide.html)
+
+* [Espressif Thread Border Router / Zigbee Gateway](https://docs.espressif.com/projects/esp-thread-br/en/latest/hardware_platforms.html)
 
 ## Get esp-zigbee-sdk
 
@@ -40,7 +39,9 @@ git clone https://github.com/espressif/esp-zigbee-sdk.git
 ```
 
 ## Supported ESP-IDF versions
-* This SDK currently works with ESP-IDF release/v5.1 branch.
+* This SDK is recommended to be used with [ESP-IDF v5.3.2](https://github.com/espressif/esp-idf/tree/v5.3.2).
+
+* If you are using the [ESP32-C5-DevKitM-1](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c5/esp32-c5-devkitc-1/user_guide.html), which is currently in a preview state, the SDK **MUST** be used with the [ESP-IDF master](https://github.com/espressif/esp-idf/tree/master).
 
 ## Copyright Notes
 

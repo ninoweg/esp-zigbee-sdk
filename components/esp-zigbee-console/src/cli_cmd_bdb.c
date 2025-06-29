@@ -250,9 +250,9 @@ static esp_err_t cli_nwk_legacy(esp_zb_cli_cmd_t *self, int argc, char **argv)
     } else if (argc > 3) {
         ret = ESP_ERR_INVALID_ARG;
     } else if (!strcmp(argv[1], "enable")) {
-        esp_zb_secur_link_key_exchange_required_set(true);
-    } else if (!strcmp(argv[1], "disable")) {
         esp_zb_secur_link_key_exchange_required_set(false);
+    } else if (!strcmp(argv[1], "disable")) {
+        esp_zb_secur_link_key_exchange_required_set(true);
     } else {
         cli_output("Invalid option: %s, use \"enable\" or \"disable\"\n", argv[1]);
         ret = ESP_ERR_INVALID_ARG;
@@ -483,7 +483,141 @@ exit:
     return ret;
 }
 
+/* Sub-commands of `linkkey` */
+
+typedef enum linkkey_op_s {
+    LKO_add,
+    LKO_remove,
+    LKO_set,
+} linkkey_op_t;
+
+static esp_err_t cli_linkkey_op(linkkey_op_t op, esp_zb_cli_cmd_t *self, int argc, char **argv)
+{
+    struct {
+        arg_str_t *type;
+        arg_hex_t *key;
+        arg_lit_t *help;
+        arg_end_t *end;
+    } argtable = {
+        .type = arg_str0("t", "type", "<type:d|c>", "link key type: d: distributed, c: default global TC link key), default: c"),
+        .key = arg_hexn(NULL, NULL, "<key128:KEY>", 1, 1, "link key, in HEX format"),
+        .help = arg_lit0(NULL, "help", "Print this help message"),
+        .end = arg_end(2),
+    };
+    esp_err_t ret = ESP_OK;
+    bool centralized = true; // true if type: c
+
+    /* Parse command line arguments */
+    int nerrors = arg_parse(argc, argv, (void**)&argtable);
+    EXIT_ON_FALSE(argtable.help->count == 0, ESP_OK, arg_print_help((void**)&argtable, argv[0]));
+    EXIT_ON_FALSE(nerrors == 0, ESP_ERR_INVALID_ARG, arg_print_errors(stdout, argtable.end, argv[0]));
+
+    EXIT_ON_FALSE(argtable.key->hsize[0] == 16, ESP_ERR_INVALID_ARG);
+
+    if (argtable.type->count > 0) {
+        switch (argtable.type->sval[0][0]) {
+            case 'd':
+            case 'D':
+                centralized = false;
+                break;
+            case 'c':
+            case 'C':
+                centralized = true;
+                break;
+            default:
+                EXIT_ON_ERROR(ESP_ERR_INVALID_ARG, cli_output("%s: invalid argument to option --type\n", argv[0]));
+                break;
+        }
+    }
+
+    if (centralized) {
+        switch (op) {
+            case LKO_set:
+                esp_zb_secur_TC_standard_preconfigure_key_set(argtable.key->hval[0]);
+                break;
+            case LKO_add:
+                ret = esp_zb_secur_multi_TC_standard_preconfigure_key_add(argtable.key->hval[0]);
+                break;
+            case LKO_remove:
+                ret = esp_zb_secur_multi_TC_standard_preconfigure_key_remove(argtable.key->hval[0]);
+                break;
+        }
+    } else {
+        switch (op) {
+            case LKO_set:
+                esp_zb_secur_TC_standard_distributed_key_set(argtable.key->hval[0]);
+                break;
+            case LKO_add:
+                ret = esp_zb_secur_multi_standard_distributed_key_add(argtable.key->hval[0]);
+                break;
+            case LKO_remove:
+                ret = esp_zb_secur_multi_standard_distributed_key_remove(argtable.key->hval[0]);
+                break;
+        }
+    }
+
+exit:
+    arg_hex_free(argtable.key);
+    ESP_ZB_CLI_FREE_ARGSTRUCT(&argtable);
+    return ret;
+}
+
+static esp_err_t cli_linkkey_add(esp_zb_cli_cmd_t *self, int argc, char **argv)
+{
+    return cli_linkkey_op(LKO_add, self, argc, argv);
+}
+
+static esp_err_t cli_linkkey_remove(esp_zb_cli_cmd_t *self, int argc, char **argv)
+{
+    return cli_linkkey_op(LKO_remove, self, argc, argv);
+}
+
+static esp_err_t cli_linkkey_set(esp_zb_cli_cmd_t *self, int argc, char **argv)
+{
+    return cli_linkkey_op(LKO_set, self, argc, argv);
+}
+
+
 /* Sub-commands of `ic` */
+
+static esp_err_t cli_ic_policy(esp_zb_cli_cmd_t *self, int argc, char **argv)
+{
+    struct {
+        arg_int_t  *ic_policy;
+        arg_end_t  *end;
+    } argtable = {
+        .ic_policy = arg_intn(NULL, NULL,  "<int:IC Policy>", 1, 1, "install code policy\n"
+                                                                    "0 - Not support\n"
+                                                                    "1 - Support\n"
+                                                                    "2 - IC Required\n"),
+        .end = arg_end(2),
+    };
+    esp_err_t ret = ESP_OK;
+
+    /* Parse command line arguments */
+    EXIT_ON_FALSE(argc > 1, ESP_OK, arg_print_help((void**)&argtable, argv[0]));
+    int nerrors = arg_parse(argc, argv, (void**)&argtable);
+    EXIT_ON_FALSE(nerrors == 0, ESP_ERR_INVALID_ARG, arg_print_errors(stdout, argtable.end, argv[0]));
+
+    switch (argtable.ic_policy->ival[0]) {
+        case 0:
+            ret = ESP_ERR_NOT_SUPPORTED;
+            break;
+        case 1:
+            EXIT_ON_ERROR(esp_zb_secur_ic_only_enable(false));
+            break;
+        case 2:
+            EXIT_ON_ERROR(esp_zb_secur_ic_only_enable(true));
+            break;
+        default:
+            EXIT_NOW(ret = ESP_ERR_INVALID_ARG; cli_output("Unknow policy value: %d\n", argtable.ic_policy->ival[0]));
+            break;
+    }
+
+exit:
+    ESP_ZB_CLI_FREE_ARGSTRUCT(&argtable);
+    return ret;
+}
 
 static esp_err_t cli_ic_add(esp_zb_cli_cmd_t *self, int argc, char **argv)
 {
@@ -858,6 +992,34 @@ exit:
     return ret;
 }
 
+static esp_err_t cli_tl_keymask(esp_zb_cli_cmd_t *self, int argc, char **argv)
+{
+    struct {
+        arg_u16_t  *keymask;
+        arg_lit_t *help;
+        arg_end_t  *end;
+    } argtable = {
+        .keymask = arg_u16n(NULL, NULL,   "<u16:mask>", 1, 1, "Touchlink key mask\n"
+                                                              "1 << 4  - master key\n"
+                                                              "1 << 15 - cetification key\n"),
+        .help    = arg_lit0(NULL, "help", "Print this help message"),
+        .end = arg_end(2),
+    };
+    esp_err_t ret = ESP_OK;
+
+    /* Parse command line arguments */
+    EXIT_ON_FALSE(argc > 1, ESP_OK, arg_print_help((void**)&argtable, argv[0]));
+    int nerrors = arg_parse(argc, argv, (void**)&argtable);
+    EXIT_ON_FALSE(nerrors == 0, ESP_ERR_INVALID_ARG, arg_print_errors(stdout, argtable.end, argv[0]));
+
+    esp_zb_zdo_touchlink_set_key_bitmask((esp_zb_touchlink_key_bitmask_t)argtable.keymask->val[0]);
+    
+exit:
+    ESP_ZB_CLI_FREE_ARGSTRUCT(&argtable);
+    return ret;
+}
+
+
 DECLARE_ESP_ZB_CLI_CMD(role,    cli_role,,    "Get/Set the Zigbee role of a device");
 DECLARE_ESP_ZB_CLI_CMD(panid,   cli_panid,,   "Get/Set the (extended) PAN ID of the node");
 DECLARE_ESP_ZB_CLI_CMD(address, cli_address,, "Get/Set the (extended) address of the node");
@@ -872,7 +1034,13 @@ DECLARE_ESP_ZB_CLI_CMD_WITH_SUB(network, "Network configuration",
     ESP_ZB_CLI_SUBCMD(scan,     cli_nwk_scan,     "Scan for network"),
     ESP_ZB_CLI_SUBCMD(ed_scan,  cli_nwk_ed_scan,  "Scan for energy detect on channels"),
 );
+DECLARE_ESP_ZB_CLI_CMD_WITH_SUB(linkkey, "Link Key Configuration",
+    ESP_ZB_CLI_SUBCMD(add,    cli_linkkey_add,     "Add additional global link key"),
+    ESP_ZB_CLI_SUBCMD(remove, cli_linkkey_remove,  "Remove additional global link key"),
+    ESP_ZB_CLI_SUBCMD(set,    cli_linkkey_set,     "Set default global link key"),
+);
 DECLARE_ESP_ZB_CLI_CMD_WITH_SUB(ic, "Install code configuration",
+    ESP_ZB_CLI_SUBCMD(policy, cli_ic_policy, "Set install code policy"),
     ESP_ZB_CLI_SUBCMD(add,    cli_ic_add,    "Add install code for a device"),
     ESP_ZB_CLI_SUBCMD(remove, cli_ic_remove, "Remove install code for a device"),
     ESP_ZB_CLI_SUBCMD(set,    cli_ic_set,    "Set install code on device"),
@@ -888,4 +1056,5 @@ DECLARE_ESP_ZB_CLI_CMD_WITH_SUB(tl, "TouchLink configuration",
     ESP_ZB_CLI_SUBCMD(timeout, cli_tl_timeout, "Get/Set touchlink target timeout"),
     ESP_ZB_CLI_SUBCMD(rssi,    cli_tl_rssi,    "Get/Set touchlink target rssi threshold"),
     ESP_ZB_CLI_SUBCMD(key,     cli_tl_key,     "Get/Set touchlink master key"),
+    ESP_ZB_CLI_SUBCMD(keymask, cli_tl_keymask, "Set touchlink master key mask"),
 );

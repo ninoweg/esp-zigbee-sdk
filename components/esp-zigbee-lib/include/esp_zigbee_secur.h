@@ -25,6 +25,15 @@ typedef enum {
 /********************* Declare functions **************************/
 
 /**
+ * @brief Enable Trust Center to only use install code policy
+ *
+ * @param[in] enabled A boolean indicating whether only the install code policy is enabled.
+ * @return
+ *      - ESP_OK: on success, otherwise, failed
+ */
+esp_err_t esp_zb_secur_ic_only_enable(bool enabled);
+
+/**
  * @brief   Get the Zigbee install code from storage
  *
  * @warning  Only for the non-Trust Center device (non Zigbee coordinator)!
@@ -172,6 +181,45 @@ esp_err_t esp_zb_secur_primary_network_key_get(uint8_t *key);
  *      - ESP_ERR_INVALID_STATE: invalid network state.
  */
 esp_err_t esp_zb_secur_network_key_set(uint8_t *key);
+
+/**
+ * @brief Switches the local network key using the specified Key Sequence Number.
+ *
+ * @param[in] key A 16-byte security network key that will be switched
+ * @param[in] key_seq_num The sequence number of the network key to switch to.
+ * @return
+ *      - ESP_OK: on success
+ *      - ESP_ERR_INVALID_ARG: invalid argument
+ */
+esp_err_t esp_zb_secur_network_key_switch(const uint8_t *key, uint8_t key_seq_num);
+
+/**
+ * @brief Broadcast a new network key in the network.
+ *
+ * @param[in] key         A 16-byte security network key to be broadcast.
+ * @param[in] key_seq_num The sequence number to associate with the new network key.
+ *
+ * @return
+ *      - ESP_OK: Success
+ *      - ESP_ERR_NO_MEM: Insufficient memory to process the request
+ *      - ESP_ERR_NOT_SUPPORTED: The current Zigbee role does not support sending this command
+ *      - ESP_ERR_INVALID_ARG: The provided key value is invalid
+ *      - Otherwise: Failure
+ */
+esp_err_t esp_zb_secur_broadcast_network_key(const uint8_t *key, uint8_t key_seq_num);
+
+/**
+ * @brief Broadcast to switch the network key in the network.
+ *
+ * @param[in] key_seq_num The sequence number of the network key to be activated.
+ *
+ * @return
+ *      - ESP_OK: Success
+ *      - ESP_ERR_NO_MEM: Insufficient memory to process the request
+ *      - ESP_ERR_NOT_SUPPORTED: The current Zigbee role does not support sending this command
+ *      - Otherwise: Failure
+ */
+esp_err_t esp_zb_secur_broadcast_network_key_switch(uint8_t key_seq_num);
 
 /**
  * @brief Get the minimum LQI values for device joining the network

@@ -14,6 +14,8 @@
 #include "cli_cmd.h"
 #include "cmdline_parser.h"
 #include "zb_data/zcl.h"
+#include "cli_cmd_aps.h"
+#include "zb_data/zb_custom_clusters/custom_common.h"
 
 #define TAG "cli_cmd_zcl"
 
@@ -86,16 +88,17 @@ static esp_err_t zcl_read_report_cfg_resp_handler(const esp_zb_zcl_cmd_read_repo
 {
     cli_output_callback_info("Read report configure response", &message->info);
 
-    ESP_LOGI(TAG, "- attribute(0x%04x), status(0x%x)", message->attribute_id, message->info.status);
-    if (message->info.status == ESP_ZB_ZCL_STATUS_SUCCESS) {
-        if (message->report_direction == ESP_ZB_ZCL_REPORT_DIRECTION_SEND) {
-            /* TODO: support printing varible length of delta */
-            ESP_LOGI(TAG, "  min(%d), max(%d), delta(%d)", message->client.min_interval, message->client.max_interval, message->client.delta[0]);
-        } else {
-            ESP_LOGI(TAG, "  timeout(%d)", message->server.timeout);
+    for (esp_zb_zcl_read_report_config_resp_variable_t *variables = message->variables; variables != NULL; variables = variables->next) {
+        ESP_LOGI(TAG, "- attribute(0x%04x), status(0x%x)", variables->attribute_id, variables->status);
+        if (variables->status == ESP_ZB_ZCL_STATUS_SUCCESS) {
+            if (variables->report_direction == ESP_ZB_ZCL_REPORT_DIRECTION_SEND) {
+                /* TODO: support printing varible length of delta */
+                ESP_LOGI(TAG, "  min(%d), max(%d), delta(%d)", variables->client.min_interval, variables->client.max_interval, variables->client.delta[0]);
+            } else {
+                ESP_LOGI(TAG, "  timeout(%d)", variables->server.timeout);
+            }
         }
     }
-
     return ESP_OK;
 }
 
@@ -114,7 +117,7 @@ static esp_err_t zcl_default_resp_handler(esp_zb_zcl_cmd_default_resp_message_t 
 {
     cli_output_callback_info("Default response", &message->info);
 
-    ESP_LOGI(TAG, "- command(0x%02x), status(%d)", message->resp_to_cmd, message->status_code);
+    ESP_LOGI(TAG, "- command(0x%02x), status(0x%x)", message->resp_to_cmd, message->status_code);
 
     return ESP_OK;
 }
@@ -146,6 +149,11 @@ esp_err_t cli_zcl_core_action_handler(esp_zb_core_action_callback_id_t callback_
             break;
         case ESP_ZB_CORE_CMD_DEFAULT_RESP_CB_ID:
             ret = zcl_default_resp_handler((esp_zb_zcl_cmd_default_resp_message_t *)message);
+            break;
+        case ESP_ZB_CORE_CMD_CUSTOM_CLUSTER_RESP_CB_ID:
+        case ESP_ZB_CORE_CMD_CUSTOM_CLUSTER_REQ_CB_ID:
+            ret = esp_zb_custom_clusters_command_handler((esp_zb_zcl_custom_cluster_command_message_t *)message);
+            break;
         default:
             break;
     }
@@ -190,8 +198,8 @@ static esp_err_t zcl_add_attribute(esp_zb_attribute_list_t *attr_list, attribute
     EXIT_ON_FALSE(attr_list, ESP_ERR_INVALID_ARG);
     EXIT_ON_FALSE(attr_cfg->attr_value_p, ESP_ERR_INVALID_ARG, cli_output_line("Invalid attribute value"));
 
-    EXIT_ON_ERROR(force ? esp_zb_cluster_add_attr(attr_list, attr_list->next->cluster_id, attr_cfg->attr_id,
-                                                  attr_cfg->attr_type, attr_cfg->attr_access, attr_cfg->attr_value_p)
+    EXIT_ON_ERROR(force ? esp_zb_cluster_add_manufacturer_attr(attr_list, attr_list->next->cluster_id, attr_cfg->attr_id, attr_cfg->manuf_code,
+                                                               attr_cfg->attr_type, attr_cfg->attr_access, attr_cfg->attr_value_p)
                         : esp_zb_cluster_add_std_attr(attr_list, attr_cfg->attr_id, attr_cfg->attr_value_p),
                   cli_output_line("Fail to add attribute"));
 
@@ -700,73 +708,20 @@ exit:
 
 /* Implementation of ``zcl <general_cmd>`` commands */
 
-typedef struct esp_zb_cli_aps_argtable_s {
-    arg_addr_t *dst_addr;
-    arg_u8_t   *dst_ep;
-    arg_u8_t   *src_ep;
-    arg_u16_t  *profile;
-    arg_u16_t  *cluster;
-} esp_zb_cli_aps_argtable_t;
-
-static void esp_zb_cli_fill_aps_argtable(esp_zb_cli_aps_argtable_t *aps)
-{
-    aps->dst_addr = arg_addrn("d", "dst-addr", "<addr:ADDR>", 0, 1, "destination address");
-    aps->dst_ep   = arg_u8n(NULL,  "dst-ep",   "<u8:EID>",    0, 1, "destination endpoint id");
-    aps->src_ep   = arg_u8n("e",   "src-ep",   "<u8:EID>",    1, 1, "source endpoint id");
-    aps->profile  = arg_u16n(NULL, "profile",  "<u16:PID>",   0, 1, "profile id of the command");
-    aps->cluster  = arg_u16n("c",  "cluster",  "<u16:CID>",   1, 1, "cluster id of the command");
-}
-
-static esp_err_t esp_zb_cli_parse_aps_dst(esp_zb_cli_aps_argtable_t *parsed_argtable, esp_zb_addr_u *dst_addr_u,
-                                          uint8_t  *dst_endpoint, esp_zb_zcl_address_mode_t *address_mode,
-                                          uint8_t  *src_endpoint, uint16_t *cluster_id, uint16_t *profile_id)
-{
-    esp_err_t ret = ESP_OK;
-    /* Fill "dst_addr", "dst_ep" and "addr_mode" */
-    if (parsed_argtable->dst_addr->count > 0) {
-        esp_zb_zcl_addr_t *dst_addr = &parsed_argtable->dst_addr->addr[0];
-        esp_zb_aps_address_mode_t address_mode_select[][2] = {
-            [ESP_ZB_ZCL_ADDR_TYPE_SHORT][0] = ESP_ZB_APS_ADDR_MODE_16_GROUP_ENDP_NOT_PRESENT,
-            [ESP_ZB_ZCL_ADDR_TYPE_IEEE][0]  = ESP_ZB_APS_ADDR_MODE_64_PRESENT_ENDP_NOT_PRESENT,
-            [ESP_ZB_ZCL_ADDR_TYPE_SHORT][1] = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT,
-            [ESP_ZB_ZCL_ADDR_TYPE_IEEE][1]  = ESP_ZB_APS_ADDR_MODE_64_ENDP_PRESENT,
-        };
-        /* Copy parse address */
-        memcpy(dst_addr_u, &dst_addr->u, sizeof(esp_zb_addr_u));
-        if (parsed_argtable->dst_ep->count > 0) {
-            *dst_endpoint = parsed_argtable->dst_ep->val[0];
-        }
-        *address_mode = address_mode_select[dst_addr->addr_type][parsed_argtable->dst_ep->count > 0 ? 1 : 0];
-        EXIT_ON_FALSE(*address_mode !=  ESP_ZB_APS_ADDR_MODE_64_PRESENT_ENDP_NOT_PRESENT,
-                      ESP_ERR_NOT_SUPPORTED, cli_output_line("Unsupported address mode, dst-ep is required"));
-    }
-
-    if (parsed_argtable->profile->count > 0 && profile_id) {
-        *profile_id = parsed_argtable->profile->val[0];
-    }
-    if (parsed_argtable->src_ep->count > 0 && src_endpoint) {
-        *src_endpoint = parsed_argtable->src_ep->val[0];
-    }
-    if (parsed_argtable->cluster->count > 0 && cluster_id) {
-        *cluster_id = parsed_argtable->cluster->val[0];
-    }
-
-exit:
-    return ret;
-}
-
 static esp_err_t cli_zcl_attr_cmd(esp_zb_cli_cmd_t *self, int argc, char **argv)
 {
     struct {
         esp_zb_cli_aps_argtable_t aps;
         arg_str_t  *peer_role;
         arg_u16_t  *attr_id;
+        arg_u16_t  *manuf_code;
         arg_u8_t   *attr_type;
         arg_hex_t  *attr_value;
         arg_end_t  *end;
     } argtable = {
         .peer_role  = arg_strn("r", "role",  "<sc:C|S>",    0, 1, "role of the peer cluster, default: S"),
         .attr_id    = arg_u16n("a", "attr",  "<u16:AID>",   0, 1, "id of the operating attribute"),
+        .manuf_code = arg_u16n(NULL,"manuf", "<u16:CODE>",  0, 1, "set CODE of the manufacture"),
         .attr_type  = arg_u8n("t",  "type",  "<u8:TID>",    0, 1, "ZCL attribute type id"),
         .attr_value = arg_hexn("v", "value", "<hex:DATA>",  0, 1, "value of the attribute, raw data in HEX"),
         .end = arg_end(2),
@@ -781,12 +736,18 @@ static esp_err_t cli_zcl_attr_cmd(esp_zb_cli_cmd_t *self, int argc, char **argv)
     int nerrors = arg_parse(argc, argv, (void**)&argtable);
     EXIT_ON_FALSE(nerrors == 0, ESP_ERR_INVALID_ARG, arg_print_errors(stdout, argtable.end, argv[0]));
 
-    /* Default requst settings */
+    /* Default request settings */
     union {
         struct {
             esp_zb_zcl_basic_cmd_t zcl_basic_cmd;
             esp_zb_zcl_address_mode_t address_mode;
             uint16_t cluster_id;
+            struct {
+                uint8_t manuf_specific   : 2;
+                uint8_t direction        : 1;
+                uint8_t dis_defalut_resp : 1;
+            };
+            uint16_t manuf_code;
         };
         esp_zb_zcl_read_attr_cmd_t          read_req;
         esp_zb_zcl_write_attr_cmd_t         write_req;
@@ -805,20 +766,26 @@ static esp_err_t cli_zcl_attr_cmd(esp_zb_cli_cmd_t *self, int argc, char **argv)
                                            &req_params.zcl_basic_cmd.src_endpoint,
                                            &req_params.cluster_id, NULL));
 
-    esp_zb_zcl_cmd_direction_t direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_SRV;
     if (argtable.peer_role->count > 0) {
         switch (argtable.peer_role->sval[0][0]) {
             case 'C':
             case 'c':
-                direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
+                req_params.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_CLI;
                 break;
             case 'S':
             case 's':
-                direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_SRV;
+                req_params.direction = ESP_ZB_ZCL_CMD_DIRECTION_TO_SRV;
                 break;
             default:
                 EXIT_ON_ERROR(ESP_ERR_INVALID_ARG, cli_output_line("invalid argument to option -r"));
                 break;
+        }
+    }
+
+    if (argtable.manuf_code->count > 0) {
+        if (argtable.manuf_code->val[0] != ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC) {
+            req_params.manuf_specific = 1;
+            req_params.manuf_code = argtable.manuf_code->val[0];
         }
     }
 
@@ -843,18 +810,16 @@ static esp_err_t cli_zcl_attr_cmd(esp_zb_cli_cmd_t *self, int argc, char **argv)
         esp_zb_zcl_write_attr_cmd_req(&req_params.write_req);
     } else if (!strcmp(cmd, "report")) {
         EXIT_ON_FALSE(argtable.attr_id->count > 0, ESP_ERR_INVALID_ARG, cli_output("%s: -a <u16:AID> is required\n", cmd));
-        /* TODO: Support report client attribute */
-        req_params.report_req.cluster_role = ESP_ZB_ZCL_CLUSTER_SERVER_ROLE;
         req_params.report_req.attributeID = argtable.attr_id->val[0];
         ret = esp_zb_zcl_report_attr_cmd_req(&req_params.report_req);
     } else if (!strcmp(cmd, "config_rp")) {
         int n = argtable.attr_id->count;
-        bool report_change = 0;
+        uint64_t report_change = 0;
         esp_zb_zcl_config_report_record_t rprt_cfg_records[n];
         EXIT_ON_FALSE(n == argtable.attr_type->count, ESP_ERR_INVALID_ARG,
                       cli_output("%s: unbalanced options of --attr and --type\n", cmd));
         for (int i = 0; i < n; i++) {
-            rprt_cfg_records[i].direction = direction;
+            rprt_cfg_records[i].direction = ESP_ZB_ZCL_REPORT_DIRECTION_SEND;
             rprt_cfg_records[i].attributeID = argtable.attr_id->val[i];
             rprt_cfg_records[i].attrType = argtable.attr_type->val[i];
             /* TODO: Support configuring the report intervals */
@@ -869,14 +834,13 @@ static esp_err_t cli_zcl_attr_cmd(esp_zb_cli_cmd_t *self, int argc, char **argv)
         int n = argtable.attr_id->count;
         esp_zb_zcl_attribute_record_t attr_records[n]; /* VLA */
         for (int i = 0; i < n; i++) {
-            attr_records[i].report_direction = direction;
+            attr_records[i].report_direction = ESP_ZB_ZCL_REPORT_DIRECTION_SEND;
             attr_records[i].attributeID = argtable.attr_id->val[i];
         }
         req_params.read_report_config_req.record_number = n;
         req_params.read_report_config_req.record_field = attr_records;
         esp_zb_zcl_read_report_config_cmd_req(&req_params.read_report_config_req);
     } else if (!strcmp(cmd, "disc_attr")) {
-        req_params.disc_attr.direction = direction;
         req_params.disc_attr.start_attr_id = 0x0000;
         req_params.disc_attr.max_attr_number = 30;
         esp_zb_zcl_disc_attr_cmd_req(&req_params.disc_attr);
@@ -898,14 +862,16 @@ static esp_err_t cli_zcl_send_raw(esp_zb_cli_cmd_t *self, int argc, char **argv)
         esp_zb_cli_aps_argtable_t aps;
         arg_str_t  *peer_role;
         arg_u8_t   *command;
+        arg_u16_t  *manuf_code;
         arg_hex_t  *payload;
         arg_lit_t  *dry_run;
         arg_end_t  *end;
     } argtable = {
-        .peer_role = arg_strn("r",  "role",     "<sc:C|S>",    0, 1, "role of the peer cluster, default: S"),
-        .command   = arg_u8n(NULL,  "cmd",      "<u8:CMD_ID>", 1, 1, "identifier of the command"),
-        .payload   = arg_hexn("p",  "payload",  "<hex:DATA>",  0, 1, "ZCL payload of the command, raw HEX data"),
-        .dry_run   = arg_lit0("n",  "dry-run", "print the request being sent"),
+        .peer_role  = arg_strn("r",  "role",     "<sc:C|S>",    0, 1, "role of the peer cluster, default: S"),
+        .command    = arg_u8n(NULL,  "cmd",      "<u8:CMD_ID>", 1, 1, "identifier of the command"),
+        .manuf_code = arg_u16n(NULL, "manuf",    "<u16:CODE>",  0, 1, "set manufacturer's code"),
+        .payload    = arg_hexn("p",  "payload",  "<hex:DATA>",  0, 1, "ZCL payload of the command, raw HEX data"),
+        .dry_run    = arg_lit0("n",  "dry-run",  "print the request being sent"),
         .end = arg_end(2),
     };
     esp_zb_cli_fill_aps_argtable(&argtable.aps);
@@ -930,6 +896,13 @@ static esp_err_t cli_zcl_send_raw(esp_zb_cli_cmd_t *self, int argc, char **argv)
                                            &req_params.zcl_basic_cmd.src_endpoint,
                                            &req_params.cluster_id,
                                            &req_params.profile_id));
+
+    if (argtable.manuf_code->count > 0) {
+        if (argtable.manuf_code->val[0] != ESP_ZB_ZCL_ATTR_NON_MANUFACTURER_SPECIFIC) {
+            req_params.manuf_specific = 1;
+            req_params.manuf_code = argtable.manuf_code->val[0];
+        }
+    }
 
     if (argtable.peer_role->count > 0) {
         switch (argtable.peer_role->sval[0][0]) {
@@ -971,6 +944,11 @@ static esp_err_t cli_zcl_send_raw(esp_zb_cli_cmd_t *self, int argc, char **argv)
         cli_output("prfl:0x%04x, c:0x%04x, dir:%c, cmd:0x%02x\n", req_params.profile_id, req_params.cluster_id,
                    req_params.direction == ESP_ZB_ZCL_CMD_DIRECTION_TO_SRV ? 'S' : 'C',
                    req_params.custom_cmd_id);
+        if (req_params.manuf_specific == 1) {
+            cli_output("manuf_specific: yes, with manuf_code: 0x%04x\n", req_params.manuf_code);
+        } else {
+            cli_output("manuf_specific: no\n");
+        }
         if (req_params.data.value) {
             cli_output_buffer(req_params.data.value, req_params.data.size);
         }

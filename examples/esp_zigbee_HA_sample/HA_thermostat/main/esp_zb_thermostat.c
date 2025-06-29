@@ -23,7 +23,7 @@
 #include "freertos/task.h"
 #include "ha/esp_zigbee_ha_standard.h"
 
-#define ARRAY_LENTH(arr) (sizeof(arr) / sizeof(arr[0]))
+#define ARRAY_LENGTH(arr) (sizeof(arr) / sizeof(arr[0]))
 
 #if defined ZB_ED_ROLE
 #error Define ZB_COORDINATOR_ROLE in idf.py menuconfig to compile thermostat source code.
@@ -58,7 +58,7 @@ static void esp_app_buttons_handler(switch_func_pair_t *button_func_pair)
 {
     if (button_func_pair->func == SWITCH_ONOFF_TOGGLE_CONTROL) {
         /* Send "read attributes" command to the bound sensor */
-        esp_zb_zcl_read_attr_cmd_t read_req;
+        esp_zb_zcl_read_attr_cmd_t read_req = {0};
         read_req.address_mode = ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT;
         read_req.zcl_basic_cmd.src_endpoint = HA_THERMOSTAT_ENDPOINT;
         read_req.clusterID = ESP_ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT;
@@ -69,11 +69,11 @@ static void esp_app_buttons_handler(switch_func_pair_t *button_func_pair)
             ESP_ZB_ZCL_ATTR_TEMP_MEASUREMENT_MAX_VALUE_ID,
             ESP_ZB_ZCL_ATTR_TEMP_MEASUREMENT_TOLERANCE_ID
         };
-        read_req.attr_number = ARRAY_LENTH(attributes);
+        read_req.attr_number = ARRAY_LENGTH(attributes);
         read_req.attr_field = attributes;
 
         /* Send "configure report attribute" command to the bound sensor */
-        esp_zb_zcl_config_report_cmd_t report_cmd;
+        esp_zb_zcl_config_report_cmd_t report_cmd = {0};
         report_cmd.address_mode = ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT;
         report_cmd.zcl_basic_cmd.src_endpoint = HA_THERMOSTAT_ENDPOINT;
         report_cmd.clusterID = ESP_ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT;
@@ -89,7 +89,7 @@ static void esp_app_buttons_handler(switch_func_pair_t *button_func_pair)
                 .reportable_change = &report_change,
             },
         };
-        report_cmd.record_number = ARRAY_LENTH(records);
+        report_cmd.record_number = ARRAY_LENGTH(records);
         report_cmd.record_field = records;
 
         esp_zb_lock_acquire(portMAX_DELAY);
@@ -121,7 +121,7 @@ static void bind_cb(esp_zb_zdp_status_t zdo_status, void *user_ctx)
                      temp_sensor.short_addr, temp_sensor.endpoint);
 
             /* Read peer Manufacture Name & Model Identifier */
-            esp_zb_zcl_read_attr_cmd_t read_req;
+            esp_zb_zcl_read_attr_cmd_t read_req = {0};
             read_req.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
             read_req.zcl_basic_cmd.src_endpoint = HA_THERMOSTAT_ENDPOINT;
             read_req.zcl_basic_cmd.dst_endpoint = temp_sensor.endpoint;
@@ -132,7 +132,7 @@ static void bind_cb(esp_zb_zdp_status_t zdo_status, void *user_ctx)
                 ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID,
                 ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID,
             };
-            read_req.attr_number = ARRAY_LENTH(attributes);
+            read_req.attr_number = ARRAY_LENGTH(attributes);
             read_req.attr_field = attributes;
 
             esp_zb_zcl_read_attr_cmd_req(&read_req);
@@ -161,7 +161,7 @@ static void user_find_cb(esp_zb_zdp_status_t zdo_status, uint16_t peer_addr, uin
         esp_zb_ieee_address_by_short(sensor->short_addr, sensor->ieee_addr);
 
         /* 1. Send binding request to the sensor */
-        esp_zb_zdo_bind_req_param_t *bind_req = (esp_zb_zdo_bind_req_param_t *)calloc(sizeof(esp_zb_zdo_bind_req_param_t), 1);
+        esp_zb_zdo_bind_req_param_t *bind_req = (esp_zb_zdo_bind_req_param_t *)calloc(1, sizeof(esp_zb_zdo_bind_req_param_t));
         bind_req->req_dst_addr = peer_addr;
 
         /* populate the src information of the binding */
@@ -178,7 +178,7 @@ static void user_find_cb(esp_zb_zdp_status_t zdo_status, uint16_t peer_addr, uin
         esp_zb_zdo_device_bind_req(bind_req, bind_cb, bind_req);
 
         /* 2. Send binding request to self */
-        bind_req = (esp_zb_zdo_bind_req_param_t *)calloc(sizeof(esp_zb_zdo_bind_req_param_t), 1);
+        bind_req = (esp_zb_zdo_bind_req_param_t *)calloc(1, sizeof(esp_zb_zdo_bind_req_param_t));
         bind_req->req_dst_addr = esp_zb_get_short_address();
 
         /* populate the src information of the binding */
@@ -208,10 +208,15 @@ static void find_temperature_sensor(esp_zb_zdo_match_desc_req_param_t *param, es
 
 static esp_err_t deferred_driver_init(void)
 {
-    ESP_RETURN_ON_FALSE(switch_driver_init(button_func_pair, PAIR_SIZE(button_func_pair), esp_app_buttons_handler), ESP_FAIL, TAG,
-                        "Failed to initialize switch driver");
-    return ESP_OK;
+    static bool is_inited = false;
+    if (!is_inited) {
+        ESP_RETURN_ON_FALSE(switch_driver_init(button_func_pair, PAIR_SIZE(button_func_pair), esp_app_buttons_handler),
+                            ESP_FAIL, TAG, "Failed to initialize switch driver");
+        is_inited = true;
+    }
+    return is_inited ? ESP_OK : ESP_FAIL;
 }
+
 void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
 {
     uint32_t *p_sg_p       = signal_struct->p_app_signal;
@@ -227,7 +232,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
     case ESP_ZB_BDB_SIGNAL_DEVICE_REBOOT:
         if (err_status == ESP_OK) {
             ESP_LOGI(TAG, "Deferred driver initialization %s", deferred_driver_init() ? "failed" : "successful");
-            ESP_LOGI(TAG, "Device started up in %s factory-reset mode", esp_zb_bdb_is_factory_new() ? "" : "non");
+            ESP_LOGI(TAG, "Device started up in%s factory-reset mode", esp_zb_bdb_is_factory_new() ? "" : " non");
             if (esp_zb_bdb_is_factory_new()) {
                 ESP_LOGI(TAG, "Start network formation");
                 esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_FORMATION);
@@ -236,7 +241,10 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                 ESP_LOGI(TAG, "Device rebooted");
             }
         } else {
-            ESP_LOGE(TAG, "Failed to initialize Zigbee stack (status: %s)", esp_err_to_name(err_status));
+            ESP_LOGW(TAG, "%s failed with status: %s, retrying", esp_zb_zdo_signal_to_string(sig_type),
+                     esp_err_to_name(err_status));
+            esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
+                                   ESP_ZB_BDB_MODE_INITIALIZATION, 1000);
         }
         break;
     case ESP_ZB_BDB_SIGNAL_FORMATION:

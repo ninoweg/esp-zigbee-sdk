@@ -1,0 +1,10 @@
+stages:
+  - generate
+  - build
+  - target_test
+  - docs
+
+variables:
+    DEFAULT_IDF_VERSION: "v5.3.2"
+    DEFAULT_BUILD_DOCKER_ENV: "v5.3:1"
+    DEFAULT_DOC_DOCKER_ENV: "v5.3:1-1"

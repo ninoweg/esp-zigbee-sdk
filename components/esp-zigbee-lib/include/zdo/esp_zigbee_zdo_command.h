@@ -26,6 +26,45 @@ extern "C" {
 #define ESP_ZB_DEVICE_LEAVE_REQ_TIMEOUT             (5 * ESP_ZB_TIME_ONE_SECOND)            /* timeout for device leave request */
 #define ESP_ZB_DEVICE_BIND_TABLE_REQ_TIMEOUT        (5 * ESP_ZB_TIME_ONE_SECOND)            /* timeout for device bind table request */
 #define ESP_ZB_DEVICE_MGMT_LQI_REQ_TIMEOUT          (5 * ESP_ZB_TIME_ONE_SECOND)            /* timeout for zdo mgmt lqi request */
+#define ESP_ZB_POWER_DESC_REQ_TIMEOUT               (5 * ESP_ZB_TIME_ONE_SECOND)            /* timeout for zdo power descriptor request */
+/**
+ * @brief The network address list of assocaited devices.
+ *
+ */
+typedef struct esp_zb_zdo_nwk_addr_list_s {
+    uint8_t start_index;        /*!< Starting index into the list of associated devices for this report. */
+    uint8_t total;              /*!< Count of the number of 16-bit short addresses to follow.*/
+    uint8_t count;              /*!< Number of short addresses in the list. */
+    uint16_t *nwk_addresses;    /*!< Array of network address. */
+} esp_zb_zdo_nwk_addr_list_t;
+
+/**
+ * @brief The Zigbee ZDO nwk_addr response struct.
+ *
+ */
+typedef struct esp_zb_zdo_nwk_addr_rsp_s {
+    esp_zb_ieee_addr_t ieee_addr;           /*!< 64-bit address for the Remote Device. */
+    uint16_t nwk_addr;                      /*!< 16-bit address for the Remote Device. */
+    esp_zb_zdo_nwk_addr_list_t *ext_resp;   /*!< Extended response: network address of assosicated devices.
+                                                 This field only existed when the request was sent with RequestType = 1. */
+} esp_zb_zdo_nwk_addr_rsp_t;
+
+/**
+ * @brief The Zigbee ZDO power desc response struct.
+ *
+ */
+typedef struct esp_zb_zdo_power_desc_rsp_s {
+    uint8_t status;                         /*!< The status of the Power_Desc_req command, @see esp_zb_zdp_status_t */
+    uint16_t nwk_addr_of_interest;          /*!< NWK address for the request. */
+    esp_zb_af_node_power_desc_t desc;       /*!< Node power descriptor of remote device */
+} esp_zb_zdo_power_desc_rsp_t;
+
+/**
+ * @brief The Zigbee ZDO ieee_addr response struct.
+ *
+ * @anchor esp_zb_zdo_ieee_addr_rsp_t
+ */
+typedef esp_zb_zdo_nwk_addr_rsp_t esp_zb_zdo_ieee_addr_rsp_t;
 
 /** Find device callback
  *
@@ -48,11 +87,11 @@ typedef void (*esp_zb_zdo_match_desc_callback_t)(esp_zb_zdp_status_t zdo_status,
  * @note User's callback get response from the remote device that local node wants to get ieee address.
  *
  * @param[in] zdo_status The ZDO response status, refer to `esp_zb_zdp_status`
- * @param[in] ieee_addr  A ieee address of the device response, 0xFFFF FFFF FFFF FFFF - invalid ieee address
- * @param[in] user_ctx  User information context, set in `esp_zb_zdo_ieee_addr_req()`
+ * @param[in] resp       The response of ieee address request, see @ref esp_zb_zdo_ieee_addr_rsp_t.
+ * @param[in] user_ctx   User information context, set in `esp_zb_zdo_ieee_addr_req()`
  *
  */
-typedef void (*esp_zb_zdo_ieee_addr_callback_t)(esp_zb_zdp_status_t zdo_status, esp_zb_ieee_addr_t ieee_addr, void *user_ctx);
+typedef void (*esp_zb_zdo_ieee_addr_callback_t)(esp_zb_zdp_status_t zdo_status, esp_zb_zdo_ieee_addr_rsp_t *resp, void *user_ctx);
 
 /** Network address request callback
  *
@@ -61,11 +100,11 @@ typedef void (*esp_zb_zdo_ieee_addr_callback_t)(esp_zb_zdp_status_t zdo_status, 
  * @note User's callback gets response from the remote device that local node wants to get network address.
  *
  * @param[in] zdo_status The ZDO response status, refer to `esp_zb_zdp_status`
- * @param[in] nwk_addr  A network address of the device response, 0xFFFF - invalid ieee address
- * @param[in] user_ctx  User information context, set in `esp_zb_zdo_ieee_addr_req()`
+ * @param[in] resp       The response of network address request, see @ref esp_zb_zdo_nwk_addr_rsp_s.
+ * @param[in] user_ctx   User information context, set in `esp_zb_zdo_nwk_addr_req()`
  *
  */
-typedef void (*esp_zb_zdo_nwk_addr_callback_t)(esp_zb_zdp_status_t zdo_status, uint16_t nwk_addr, void *user_ctx);
+typedef void (*esp_zb_zdo_nwk_addr_callback_t)(esp_zb_zdp_status_t zdo_status, esp_zb_zdo_nwk_addr_rsp_t *resp, void *user_ctx);
 
 /** Node descriptor callback
  *
@@ -80,6 +119,20 @@ typedef void (*esp_zb_zdo_nwk_addr_callback_t)(esp_zb_zdp_status_t zdo_status, u
  *
  */
 typedef void (*esp_zb_zdo_node_desc_callback_t)(esp_zb_zdp_status_t zdo_status, uint16_t addr, esp_zb_af_node_desc_t *node_desc, void *user_ctx);
+
+/** Power descriptor callback
+ *
+ * @brief A ZDO power descriptor request callback for user to get node power desc info.
+ *
+ * @note User's callback get response from the remote device that local node wants to get power descriptor response.
+ *
+ * @param[in] zdo_status    The ZDO response status, refer to `esp_zb_zdp_status`
+ * @param[in] addr          A short address of the device response, 0xFFFF - invalid address
+ * @param[in] power_desc    A pointer to the power desc, refer to esp_zb_af_node_power_desc_t
+ * @param[in] user_ctx      User information context, set in `esp_zb_zdo_power_desc_req()`
+ *
+ */
+typedef void (*esp_zb_zdo_power_desc_callback_t)(esp_zb_zdo_power_desc_rsp_t *power_desc, void *user_ctx);
 
 /** Bind request callback
  *
@@ -212,6 +265,14 @@ typedef struct esp_zb_zdo_nwk_addr_req_param_s {
 typedef struct esp_zb_zdo_node_desc_req_param_s {
     uint16_t    dst_nwk_addr;                           /*!< NWK address that is used for IEEE address mapping.  */
 } esp_zb_zdo_node_desc_req_param_t;
+
+/**
+ * @brief The Zigbee ZDO power descriptor command struct
+ *
+ */
+typedef struct esp_zb_zdo_power_desc_req_param_s {
+    uint16_t    dst_nwk_addr;     /*!< NWK address for the request. */
+} esp_zb_zdo_power_desc_req_param_t;
 
 /**
  * @brief The Zigbee ZDO simple descriptor command struct
@@ -509,6 +570,16 @@ void esp_zb_zdo_nwk_addr_req(esp_zb_zdo_nwk_addr_req_param_t *cmd_req, esp_zb_zd
  *
  */
 void esp_zb_zdo_node_desc_req(esp_zb_zdo_node_desc_req_param_t *cmd_req, esp_zb_zdo_node_desc_callback_t user_cb, void *user_ctx);
+
+/**
+ * @brief   Send power descriptor request command
+ *
+ * @param[in] cmd_req  Pointer to the power descriptor request command @ref esp_zb_zdo_power_desc_req_param_s
+ * @param[in] user_cb  A user callback that will be called if received power desc response refer to esp_zb_zdo_power_desc_callback_t
+ * @param[in] user_ctx A void pointer that contains the user defines additional information when callback trigger
+ *
+ */
+void esp_zb_zdo_power_desc_req(esp_zb_zdo_power_desc_req_param_t *cmd_req, esp_zb_zdo_power_desc_callback_t user_cb, void *user_ctx);
 
 /**
  * @brief   Send simple descriptor request command

@@ -37,15 +37,14 @@
 
 static const char *TAG = "ESP_ZB_SLEEP";
 
-static switch_func_pair_t button_func_pair[] = {
-    {CONFIG_GPIO_INPUT_IO_WAKEUP, SWITCH_ONOFF_TOGGLE_CONTROL}
-};
+static switch_func_pair_t button_func_pair[] = {{CONFIG_GPIO_EXT1_WAKEUP_SOURCE, SWITCH_ONOFF_TOGGLE_CONTROL}};
 
-static void ieee_cb(esp_zb_zdp_status_t zdo_status, esp_zb_ieee_addr_t ieee_addr, void *user_ctx)
+static void ieee_cb(esp_zb_zdp_status_t zdo_status, esp_zb_zdo_ieee_addr_rsp_t *resp, void *user_ctx)
 {
     if (zdo_status == ESP_ZB_ZDP_STATUS_SUCCESS) {
-        ESP_LOGI(TAG, "Response IEEE address: %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x", ieee_addr[7], ieee_addr[6], ieee_addr[5], ieee_addr[4],
-                 ieee_addr[3], ieee_addr[2], ieee_addr[1], ieee_addr[0]);
+        ESP_LOGI(TAG, "Response IEEE address: %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x", resp->ieee_addr[7],
+                 resp->ieee_addr[6], resp->ieee_addr[5], resp->ieee_addr[4], resp->ieee_addr[3], resp->ieee_addr[2],
+                 resp->ieee_addr[1], resp->ieee_addr[0]);
     }
 }
 
@@ -67,23 +66,27 @@ static void zb_buttons_handler(switch_func_pair_t* button_func_pair)
 
 static esp_err_t deferred_driver_init(void)
 {
-    ESP_RETURN_ON_FALSE(switch_driver_init(button_func_pair, PAIR_SIZE(button_func_pair), zb_buttons_handler), ESP_FAIL, TAG,
-                        "Failed to initialize switch driver");
-    /* Configure RTC IO wake up:
-    The configuration mode depends on your hardware design.
-    Since the BOOT button is connected to a pull-up resistor, the wake-up mode is configured as LOW.
-    */
-    ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup(
-        1ULL << CONFIG_GPIO_INPUT_IO_WAKEUP, ESP_EXT1_WAKEUP_ANY_LOW));
+    static bool is_inited = false;
+    if (!is_inited) {
+        ESP_RETURN_ON_FALSE(switch_driver_init(button_func_pair, PAIR_SIZE(button_func_pair), zb_buttons_handler),
+                            ESP_FAIL, TAG, "Failed to initialize switch driver");
+        /* Configure RTC IO wake up:
+        The configuration mode depends on your hardware design.
+        Since the BOOT button is connected to a pull-up resistor, the wake-up mode is configured as LOW.
+        */
+        ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup(BIT(CONFIG_GPIO_EXT1_WAKEUP_SOURCE), ESP_EXT1_WAKEUP_ANY_LOW));
 
 #if SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
-    rtc_gpio_pulldown_dis(CONFIG_GPIO_INPUT_IO_WAKEUP);
-    rtc_gpio_pullup_en(CONFIG_GPIO_INPUT_IO_WAKEUP);
+        rtc_gpio_init(CONFIG_GPIO_EXT1_WAKEUP_SOURCE);
+        rtc_gpio_pulldown_dis(CONFIG_GPIO_EXT1_WAKEUP_SOURCE);
+        rtc_gpio_pullup_en(CONFIG_GPIO_EXT1_WAKEUP_SOURCE);
 #else
-    gpio_pulldown_dis(CONFIG_GPIO_INPUT_IO_WAKEUP);
-    gpio_pullup_en(CONFIG_GPIO_INPUT_IO_WAKEUP);
+        gpio_pulldown_dis(CONFIG_GPIO_EXT1_WAKEUP_SOURCE);
+        gpio_pullup_en(CONFIG_GPIO_EXT1_WAKEUP_SOURCE);
 #endif
-    return ESP_OK;
+        is_inited = true;
+    }
+    return is_inited ? ESP_OK : ESP_FAIL;
 }
 
 /********************* Define functions **************************/
@@ -106,7 +109,7 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
     case ESP_ZB_BDB_SIGNAL_DEVICE_REBOOT:
         if (err_status == ESP_OK) {
             ESP_LOGI(TAG, "Deferred driver initialization %s", deferred_driver_init() ? "failed" : "successful");
-            ESP_LOGI(TAG, "Device started up in %s factory-reset mode", esp_zb_bdb_is_factory_new() ? "" : "non");
+            ESP_LOGI(TAG, "Device started up in%s factory-reset mode", esp_zb_bdb_is_factory_new() ? "" : " non");
             if (esp_zb_bdb_is_factory_new()) {
                 ESP_LOGI(TAG, "Start network steering");
                 esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
@@ -114,8 +117,10 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                 ESP_LOGI(TAG, "Device rebooted");
             }
         } else {
-            /* commissioning failed */
-            ESP_LOGW(TAG, "Failed to initialize Zigbee stack (status: %d)", err_status);
+            ESP_LOGW(TAG, "%s failed with status: %s, retrying", esp_zb_zdo_signal_to_string(sig_type),
+                     esp_err_to_name(err_status));
+            esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb,
+                                   ESP_ZB_BDB_MODE_INITIALIZATION, 1000);
         }
         break;
     case ESP_ZB_BDB_SIGNAL_STEERING:

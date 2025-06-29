@@ -577,7 +577,9 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                 ESP_LOGI(TAG, "Start network formation");
                 esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_FORMATION);
             } else {
-                ESP_LOGE(TAG, "Failed to initialize Zigbee stack (status: %s)", esp_err_to_name(err_status));
+                ESP_LOGW(TAG, "%s failed with status: %s, retrying", esp_zb_zdo_signal_to_string(sig_type),
+                         esp_err_to_name(err_status));
+                esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_INITIALIZATION);
             }
             break;
         case ESP_ZB_BDB_SIGNAL_TOUCHLINK_NWK_STARTED:
@@ -621,42 +623,16 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
         case ESP_ZB_BDB_SIGNAL_TOUCHLINK_TARGET:
         case ESP_ZB_BDB_SIGNAL_TOUCHLINK_NWK:
         case ESP_ZB_BDB_SIGNAL_TOUCHLINK_TARGET_FINISHED:
-        case ESP_ZB_BDB_SIGNAL_TOUCHLINK_ADD_DEVICE_TO_NWK:
         case ESP_ZB_NWK_SIGNAL_DEVICE_ASSOCIATED:
         case ESP_ZB_ZDO_SIGNAL_LEAVE_INDICATION:
-        case ESP_ZB_BDB_SIGNAL_WWAH_REJOIN_STARTED:
         case ESP_ZB_ZGP_SIGNAL_COMMISSIONING:
         case ESP_ZB_COMMON_SIGNAL_CAN_SLEEP:
         case ESP_ZB_ZDO_SIGNAL_PRODUCTION_CONFIG_READY:
         case ESP_ZB_NWK_SIGNAL_NO_ACTIVE_LINKS_LEFT:
-        case ESP_ZB_SE_SIGNAL_SKIP_JOIN:
-        case ESP_ZB_SE_SIGNAL_REJOIN:
-        case ESP_ZB_SE_SIGNAL_CHILD_REJOIN:
-        case ESP_ZB_SE_TC_SIGNAL_CHILD_JOIN_CBKE:
-        case ESP_ZB_SE_TC_SIGNAL_CHILD_JOIN_NON_CBKE:
-        case ESP_ZB_SE_SIGNAL_CBKE_FAILED:
-        case ESP_ZB_SE_SIGNAL_CBKE_OK:
-        case ESP_ZB_SE_SIGNAL_SERVICE_DISCOVERY_START:
-        case ESP_ZB_SE_SIGNAL_SERVICE_DISCOVERY_DO_BIND:
-        case ESP_ZB_SE_SIGNAL_SERVICE_DISCOVERY_BIND_OK:
-        case ESP_ZB_SE_SIGNAL_SERVICE_DISCOVERY_BIND_FAILED:
-        case ESP_ZB_SE_SIGNAL_SERVICE_DISCOVERY_BIND_INDICATION:
-        case ESP_ZB_SE_SIGNAL_SERVICE_DISCOVERY_OK:
-        case ESP_ZB_SE_SIGNAL_SERVICE_DISCOVERY_FAILED:
-        case ESP_ZB_SE_SIGNAL_APS_KEY_READY:
-        case ESP_ZB_SE_SIGNAL_APS_KEY_FAIL:
-        case ESP_ZB_SIGNAL_SUBGHZ_SUSPEND:
-        case ESP_ZB_SIGNAL_SUBGHZ_RESUME:
-        case ESP_ZB_MACSPLIT_DEVICE_BOOT:
-        case ESP_ZB_MACSPLIT_DEVICE_READY_FOR_UPGRADE:
-        case ESP_ZB_MACSPLIT_DEVICE_FW_UPGRADE_EVENT:
-        case ESP_ZB_SIGNAL_NWK_INIT_DONE:
         case ESP_ZB_ZDO_SIGNAL_DEVICE_AUTHORIZED:
         case ESP_ZB_ZDO_SIGNAL_DEVICE_UPDATE:
         case ESP_ZB_NWK_SIGNAL_PANID_CONFLICT_DETECTED:
         case ESP_ZB_NLME_STATUS_INDICATION:
-        case ESP_ZB_TCSWAP_DB_BACKUP_REQUIRED_SIGNAL:
-        case ESP_ZB_TC_SWAPPED_SIGNAL:
         case ESP_ZB_BDB_SIGNAL_TC_REJOIN_DONE:
             break;
         case ESP_ZB_NWK_SIGNAL_PERMIT_JOIN_STATUS:
@@ -673,8 +649,6 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
             break;
         case ESP_ZB_BDB_SIGNAL_STEERING_CANCELLED:
         case ESP_ZB_BDB_SIGNAL_FORMATION_CANCELLED:
-        case ESP_ZB_SIGNAL_READY_TO_SHUT:
-        case ESP_ZB_SIGNAL_INTERPAN_PREINIT:
         case ESP_ZB_ZGP_SIGNAL_MODE_CHANGE:
         case ESP_ZB_ZDO_DEVICE_UNAVAILABLE:
         case ESP_ZB_ZGP_SIGNAL_APPROVE_COMMISSIONING:
@@ -956,7 +930,7 @@ static esp_ncp_zb_cluster_fn_t cluster_list_fn_table[] = {
     { ESP_ZB_ZCL_CLUSTER_ID_PUMP_CONFIG_CONTROL        , esp_zb_cluster_list_add_custom_cluster , NULL },
     { ESP_ZB_ZCL_CLUSTER_ID_THERMOSTAT                 , esp_zb_cluster_list_add_thermostat_cluster , NULL },
     { ESP_ZB_ZCL_CLUSTER_ID_FAN_CONTROL                , esp_zb_cluster_list_add_fan_control_cluster , NULL },
-    { ESP_ZB_ZCL_CLUSTER_ID_DEHUMID_CONTROL            , esp_zb_cluster_list_add_custom_cluster , NULL },
+    { ESP_ZB_ZCL_CLUSTER_ID_DEHUMIDIFICATION_CONTROL   , esp_zb_cluster_list_add_dehumidification_control_cluster , NULL },
     { ESP_ZB_ZCL_CLUSTER_ID_THERMOSTAT_UI_CONFIG       , esp_zb_cluster_list_add_thermostat_ui_config_cluster , NULL },
     { ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL              , esp_zb_cluster_list_add_color_control_cluster , NULL },
     { ESP_ZB_ZCL_CLUSTER_ID_BALLAST_CONFIG             , esp_zb_cluster_list_add_custom_cluster , NULL },

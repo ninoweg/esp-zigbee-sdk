@@ -1,5 +1,145 @@
 # Espressif Zigbee SDK Release Notes
 
+## 21-May-2025
+1.6.5 version release of ESP-ZIGBEE-SDK is based on esp-idf v5.3.2
+
+### Features
+- Enabled the application to call `settimeofday()` to set the stack's UTC time.
+- Enabled the BDB finding & binding commissioning
+- Added `esp_zb_secur_broadcast_network_key()` to broadcast the network key within the network.
+- Added `esp_zb_secur_broadcast_network_key_switch()` to broadcast a network key switch within the network.
+- Added `esp_zb_set_node_descriptor_power_source()` to configure the power source in the local node descriptor.
+- Added `esp_zb_set_node_power_descriptor()` to configure the power descriptor of the local device.
+- Added `esp_zb_zdo_power_desc_req()` to request the power descriptor of a destination device.
+
+### Bug Fixes
+- Fixed missing initialization configuration for the Home Automation light sensor device.
+- Fixed a memory leak issue triggered when `esp_zb_aps_data_request()` is called without registering an APS confirm handler via `esp_zb_aps_data_confirm_handler_register()`.
+- Corrected the `MinMeasuredValue` and `MaxMeasuredValue` attributes in the Pressure Measurement cluster.
+
+### Changes
+- Updated esp-zigbee-lib to v1.6.5
+
+
+## 21-Feb-2025
+1.6.4 version release of ESP-ZIGBEE-SDK is based on esp-idf v5.3.2
+
+### Features
+- Added support to trigger the ZCL general command response callback of cluster server direction 
+
+### Bug Fixes
+- Fixed the APS fragment hang issue when multiple fragment frames are scheduled before the previous fragment transaction is completed
+
+### Changes
+- Updated esp-zboss-lib to v1.6.4
+- Updated esp-zigbee-lib to v1.6.4
+- Moved platform configuration files to esp-zigbee-lib
+
+
+## 14-Feb-2025
+1.6.3 version release of ESP-ZIGBEE-SDK is based on esp-idf v5.3.2
+
+### Features
+- Added API support for touchlink to configure the key bitmask
+- Added APIs support for APSME to send transport key and switch key
+- Added API support for MAC to intercept the IEEE802.15.4 frame
+- Added detailed usage information for application signals in `esp_zb_app_signal_type_t`.
+- Added the payload definitions of `ESP_ZB_COMMON_SIGNAL_CAN_SLEEP`, `ESP_ZB_ZDO_DEVICE_UNAVAILABLE`, `ESP_ZB_NLME_STATUS_INDICATION`
+  and `ESP_ZB_NWK_SIGNAL_DEVICE_ASSOCIATED`signals
+- Optimized the route discovery mechanism to prevent the neighbor from expiring immediately upon receiving its forwarded frame
+
+### Bug Fixes
+- Fixed the missing mandatory `present_value` attribute in binary input cluster
+- Fixed the incorrect default value of `ESP_ZB_ZCL_THERMOSTAT_LOCAL_TEMPERATURE_DEFAULT_VALUE` by changing it to `FF`
+- Fixed the potential buffer overflow when the ZCL write, report, or custom request needs to be fragmented for transmission
+- Fixed the APSDE-DATA confirm crashing issue when the APSDE-DATA command is sent in binding mode
+- Fixed the Touchlink issue where the `scan_request` would be handled when the device was not in Touchlink target commissioning mode
+- Fixed the Touchlink issue where the first commissioning would always fail when the Touchlink initiator was in
+  `ESP_ZB_BDB_MODE_INITIALIZATION | ESP_ZB_BDB_TOUCHLINK_COMMISSIONING` mode
+- Fixed the Touchlink issue where the initiator could not exit commissioning if the response from the target was not received
+- Fixed the Touchlink issue where commissioning always failed when the initiator acting as a router failed to find a target
+
+
+### Changes
+- Updated esp-zboss-lib to v1.6.3
+- Updated esp-zigbee-lib to v1.6.3
+- Removed the unused application signal type from `esp_zb_app_signal_type_t`
+
+## 14-Jan-2025
+1.6.2 version release of ESP-ZIGBEE-SDK is based on esp-idf v5.3.2
+
+### Features
+- Added support to configure the nwkLinkStatusPeriod
+- Added support to configure the MAC CSMA-CA parameters
+- Added support for ZCL to control reporting of float data by configuring the delta in reporting_info
+- Added support to configure the trace log at runtime
+- Adjusted the BDB and ZDO trace log levels to make them more concise and intuitive
+
+### Bug Fixes
+- Fixed the buffer leak issue when using `esp_zb_scheduler_user_alarm_cancel()`
+- Fixed the trigger condition for `ESP_ZB_CORE_CMD_CUSTOM_CLUSTER_RESP_CB_ID` to ensure it only triggers when the command direction matches the cluster role
+- Fixed the issue where `get_scene_membership` and `view_scene` requests with non-zero group IDs did not receive correct responses
+- Fixed the issue where `esp_zb_zcl_command_send_status_callback_t` triggers an error message when a ZCL command is sent in a mode other than `ESP_ZB_APS_ADDR_MODE_DST_ADDR_ENDP_NOT_PRESENT`
+- Fixed the issue where the pre-configured link key set by `esp_zb_secur_TC_standard_preconfigure_key_set()` does not take effect when the device recommissions
+- Fixed an issue where the router would no longer allow new devices to join the network after reaching the max_child limit, even if some previously joined devices had left the network
+- Fixed unexpected crashes on the coordinator when numerous devices are joining at the same time
+
+### Changes
+- Updated esp-zboss-lib to v1.6.2
+- Updated esp-zigbee-lib to v1.6.2
+
+
+## 05-Dec-2024
+1.6.1 version release of ESP-ZIGBEE-SDK is based on esp-idf v5.3.2
+
+### Features
+- Added support for APS to send data requests in parallel to multiple devices
+- Added support for ZCL dehumidification control cluster
+- Added support for ZCL OTA upgrade cluster to process commands with wildcard parameters
+- Added support for APP to configure Zigbee non-volatile memory by setting the size of zb_storage partition
+- Added support for ESP32C6 and ESP32C5 to communicate via radio spinel
+- Added API to enable/disable install code only mode at runtime
+
+### Bug Fixes
+- Fixed the crash on coordinator when numerous devices attempt to associate with the network simultaneously
+- Fixed the crash caused by insufficient delayed buffers for MAC transactions
+- Fixed the infinite loop issue when the tx queue is no sufficient on ZB_RADIO_SPINEL_UART enabled device
+- Fixed the issue where APS fragments could not be sent again after a previous fragment is not acked
+- Fixed the rejoin issue for Touchlink initiator when attempting to start the network with the second target
+- Fixed the issue where ZDO mgmt LQI req will not trigger user_cb when the response neighbor table is empty
+
+### Changes
+- Updated esp-zboss-lib to v1.6.1
+- Updated esp-zigbee-lib to v1.6.1
+- Rename `ESP_ZB_ZCL_CLUSTER_ID_DEHUMID_CONTROL` to `ESP_ZB_ZCL_CLUSTER_ID_DEHUMIDIFICATION_CONTROL`
+
+
+## 01-NOV-2024
+1.6.0 version release of ESP-ZIGBEE-SDK is based on esp-idf v5.3.1
+
+### Features
+- Added support for the extended responses to ZDO nwk_addr_req and ieee_addr_req commands
+- Added support for ZCL to add attribute with manufacturer code
+- Added support for ZCL to send general request with manufacturer code, direction and disable default response options.
+- Added support for ZCL to report error status for each record in the read reporting configuration response
+
+### Bug Fixes
+- Fixed the error datatype for the `time` and `time_status` member of `esp_zb_time_cluster_cfg_t`
+- Fixed the issue where the Touchlink initiator couldn't rejoin the network on the commissioning channel
+- Fixed the crash occurring when the touchlink initiator recommissioned after a rejoin failure
+- Fixed the issue that certain NWK requests were still encrypted when nwkSecurityLevel was 0
+
+### Changes
+- Updated esp-zboss-lib to v1.6.0
+- Updated esp-zigbee-lib to v1.6.0
+- Added the `manuf_specific`, `direction`, `dis_default_resp` and `manuf_code` options to ZCL general commands. 
+
+### Breaking Changes
+- Removed the `esp_zigbee_cli` support
+- Redefined the callback type for `esp_zb_zdo_ieee_addr_req()` and `esp_zb_zdo_nwk_addr_req()`
+- Redefined the `esp_zb_zcl_cmd_read_report_config_resp_message_t` struct
+
+
 ## 12-Oct-2024
 1.5.1 version release of ESP-ZIGBEE-SDK is based on esp-idf v5.1.4
 

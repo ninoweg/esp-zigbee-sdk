@@ -206,6 +206,7 @@ union esp_zb_zcl_attr_var_u {
     int32_t s32;        /*!< Signed 32-bit of the integer */
     esp_zb_uint48_t u48;/*!< Unsigned 48-bit of the integer */
     uint8_t data_buf[4];/*!< Data array */
+    float f32;          /*!< Single precision, ESP_ZB_ZCL_ATTR_TYPE_SINGLE data type */
 };
 
 /**
@@ -216,7 +217,7 @@ typedef struct esp_zb_zcl_reporting_info_s {
     uint8_t direction;              /*!< Direction: report is send or received */
     uint8_t ep;                     /*!< Endpoint number */
     uint16_t cluster_id;            /*!< Cluster ID for reporting */
-    uint8_t cluster_role;           /*!< Cluster rolo server/client */
+    uint8_t cluster_role;           /*!< Cluster role server/client */
     uint16_t attr_id;               /*!< Attribute ID for reporting */
     uint8_t flags;                  /*!< Flags to inform status of reporting */
     uint64_t run_time;              /*!< Time to run next reporting activity */
@@ -276,6 +277,54 @@ typedef struct esp_zb_af_node_desc_s {
     uint8_t           desc_capability_field;      /*!< Descriptor capability field */
 } ESP_ZB_PACKED_STRUCT
 esp_zb_af_node_desc_t;
+
+/**
+ * @brief Values of the current power mode of the node power descriptor
+ *
+ */
+ typedef enum {
+    ESP_ZB_AF_NODE_POWER_MODE_SYNC_ON_WHEN_IDLE        = 0U, /*!< Receiver synchronized with the receiver on when idle subfield of the node descriptor */
+    ESP_ZB_AF_NODE_POWER_MODE_COME_ON_PERIODICALLY     = 1U, /*!< Receiver comes on periodically as defined by the node power descriptor */
+    ESP_ZB_AF_NODE_POWER_MODE_COME_ON_WHEN_SIMULATED   = 2U, /*!< Receiver comes on when stimulated, for example, by a user pressing a button */
+} esp_zb_af_node_power_mode_t;
+
+/**
+ * @brief Values of the power sources of the node power descriptor
+ *
+ */
+typedef enum {
+    ESP_ZB_AF_NODE_POWER_SOURCE_CONSTANT_POWER       = (1 << 0U), /*!< Constant (mains) power */
+    ESP_ZB_AF_NODE_POWER_SOURCE_RECHARGEABLE_BATTERY = (1 << 1U), /*!< Rechargeable battery */
+    ESP_ZB_AF_NODE_POWER_SOURCE_DISPOSABLE_BATTERY   = (1 << 2U), /*!< Disposable battery */
+} esp_zb_af_node_power_source_t;
+
+/**
+ * @brief Values of the current power source level of the node power descriptor
+ *
+ */
+ typedef enum {
+    ESP_ZB_AF_NODE_POWER_SOURCE_LEVEL_CRITICAL     = 0U,    /*!< Charge Level: Critical */
+    ESP_ZB_AF_NODE_POWER_SOURCE_LEVEL_33_PERCENT   = 4U,    /*!< Charge Level: 33% */
+    ESP_ZB_AF_NODE_POWER_SOURCE_LEVEL_66_PERCENT   = 8U,    /*!< Charge Level: 66% */
+    ESP_ZB_AF_NODE_POWER_SOURCE_LEVEL_100_PERCENT  = 12U,   /*!< Charge Level: 100% */
+} esp_zb_af_node_power_source_level_t;
+
+/**
+ * @brief Struture of Node Power descriptor request of ZDO response
+ *
+ * Field Name:                 Length (bits):
+ * Current power mode:            4
+ * Available power sources:       4
+ * Current power source:          4
+ * Current power source level:    4
+ */
+ typedef struct {
+    uint8_t current_power_mode : 4;         /*!< Current power mode, @see esp_zb_af_node_power_mode_t */
+    uint8_t available_power_sources : 4;    /*!< Available power sources, @see esp_zb_af_node_power_source_t */
+    uint8_t current_power_source : 4;       /*!< Current power source, @see esp_zb_af_node_power_source_t */
+    uint8_t current_power_source_level : 4; /*!< Current power source level, @see esp_zb_af_node_power_source_level_t */
+} ESP_ZB_PACKED_STRUCT
+esp_zb_af_node_power_desc_t;
 
 /**
  * @brief Structure of simple descriptor request of ZCL command
@@ -436,8 +485,8 @@ typedef struct esp_zb_color_cluster_cfg_s {
  *
  */
 typedef struct esp_zb_time_cluster_cfg_s {
-    uint16_t time;                              /*!<  The time value of the a real time clock */
-    uint16_t time_status;                       /*!<  The time status holds a number of bit field of status */
+    uint32_t time;       /*!<  The time value of the a real time clock */
+    uint8_t time_status; /*!<  The time status holds a number of bit field of status */
 } esp_zb_time_cluster_cfg_t;
 
 /**
@@ -457,6 +506,7 @@ typedef struct esp_zb_shade_config_cluster_cfg_s {
 typedef struct esp_zb_binary_input_cluster_cfg_s {
     bool  out_of_service;                              /*!< Out of Service */
     uint8_t  status_flags;                             /*!< Status flags */
+    bool present_value;                                /*!< Present value */
 } esp_zb_binary_input_cluster_cfg_t;
 
 /**
@@ -804,7 +854,17 @@ typedef struct esp_zb_drlc_cluster_cfg_s {
 } esp_zb_drlc_cluster_cfg_t;
 
 /**
- * @brief Zigbee standard mandatory attribute for toucklink commissioning cluster
+ * @brief Zigbee standard mandatory attribute for dehumidification control cluster
+ */
+typedef struct esp_zb_dehumidification_control_cluster_cfg_s {
+    uint8_t cooling;        /*!< This attribute specifies the current dehumidification cooling output (in %) */
+    uint8_t set_point;      /*!< This attribute represents the relative humidity (in %) at which dehumidification occurs */
+    uint8_t hysteresis;     /*!< This attribute specifies the hysteresis (in %) associated with RelativeHumidity value */
+    uint16_t max_cool;      /*!< This attribute specifies the maximum dehumidification cooling output (in %) */
+} esp_zb_dehumidification_control_cluster_cfg_t;
+
+/**
+ * @brief Zigbee standard mandatory attribute for touchlink commissioning cluster
  *
  */
 typedef struct esp_zb_touchlink_commissioning_cfg_s {
